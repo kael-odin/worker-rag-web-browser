@@ -1,46 +1,56 @@
 {
   "description": "RAG Web Browser Worker - Search Google and extract web page content for LLM processing",
   "b": "query",
-  "properties": {
-    "query": {
+  "properties": [
+    {
       "title": "Search term or URL",
+      "name": "query",
       "type": "string",
+      "editor": "textfield",
       "description": "Enter Google Search keywords or a URL of a specific web page",
-      "default": "https://github.com/microsoft/vscode"
+      "default": "https://github.com/microsoft/vscode",
+      "required": true
     },
-    "maxResults": {
+    {
       "title": "Maximum results",
+      "name": "maxResults",
       "type": "integer",
+      "editor": "number",
       "description": "Maximum number of search results to extract (1-100)",
-      "default": 3,
-      "minimum": 1,
-      "maximum": 100
+      "default": 3
     },
-    "outputFormats": {
+    {
       "title": "Output formats",
+      "name": "outputFormats",
       "type": "array",
+      "editor": "select",
       "description": "Select output formats for extracted content",
       "default": ["markdown"],
-      "items": {
-        "type": "string",
-        "enum": ["text", "markdown", "html"]
-      }
+      "options": [
+        { "label": "Plain text", "value": "text" },
+        { "label": "Markdown", "value": "markdown" },
+        { "label": "HTML", "value": "html" }
+      ]
     },
-    "scrapingTool": {
+    {
       "title": "Scraping tool",
+      "name": "scrapingTool",
       "type": "string",
+      "editor": "select",
       "description": "Select scraping tool for extracting web pages",
       "default": "raw-http",
-      "enum": ["raw-http", "browser-playwright"]
+      "options": [
+        { "label": "Raw HTTP (Cheerio)", "value": "raw-http" },
+        { "label": "Browser (Playwright)", "value": "browser-playwright" }
+      ]
     },
-    "requestTimeoutSecs": {
+    {
       "title": "Request timeout (seconds)",
+      "name": "requestTimeoutSecs",
       "type": "integer",
+      "editor": "number",
       "description": "Maximum time in seconds for the request",
-      "default": 40,
-      "minimum": 1,
-      "maximum": 300
+      "default": 40
     }
-  },
-  "required": ["query"]
+  ]
 }
