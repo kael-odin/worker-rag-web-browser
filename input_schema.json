@@ -1,5 +1,6 @@
 {
-  "description": "RAG Web Browser Worker - Search Google and extract web page content for LLM processing. Enter a search query or URL to scrape web content and  "b": "query",
+  "description": "RAG Web Browser Worker - Search Google and extract web page content for LLM processing",
+  "b": "query",
   "properties": [
     {
       "title": "Search term or URL",
