@@ -8,6 +8,34 @@
       "type": "string",
       "description": "Enter Google Search keywords or a URL of a specific web page",
       "default": "https://github.com/microsoft/vscode"
+    },
+    {
+      "title": "Maximum results",
+      "name": "maxResults",
+      "type": "integer",
+      "description": "Maximum number of search results to extract (1-100)",
+      "default": 3
+    },
+    {
+      "title": "Output formats",
+      "name": "outputFormats",
+      "type": "array",
+      "description": "Select output formats for extracted content",
+      "default": ["markdown"]
+    },
+    {
+      "title": "Scraping tool",
+      "name": "scrapingTool",
+      "type": "string",
+      "description": "Select scraping tool for extracting web pages",
+      "default": "raw-http"
+    },
+    {
+      "title": "Request timeout (seconds)",
+      "name": "requestTimeoutSecs",
+      "type": "integer",
+      "description": "Maximum time in seconds for the request",
+      "default": 40
     }
   ]
 }
