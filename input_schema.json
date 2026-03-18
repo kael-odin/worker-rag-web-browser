@@ -1,15 +1,55 @@
 {
-  "description": "RAG Web Browser Worker - Search Google and extract web page content for LLM processing",
-  "b": "query",
+  "description": "RAG Web Browser Worker - Search Google and extract web page content for LLM processing. Enter a search query or URL to scrape web content and  "b": "query",
   "properties": [
     {
       "title": "Search term or URL",
       "name": "query",
       "type": "string",
       "editor": "textfield",
-      "description": "Enter Google Search keywords or a URL of a specific web page",
+      "description": "Enter Google Search keywords or a URL of a specific web page to scrape",
       "default": "https://github.com/microsoft/vscode",
       "required": true
+    },
+    {
+      "title": "Max results",
+      "name": "maxResults",
+      "type": "integer",
+      "editor": "number",
+      "description": "Maximum number of search results to extract (1-100)",
+      "default": 3
+    },
+    {
+      "title": "Output formats",
+      "name": "outputFormats",
+      "type": "array",
+      "editor": "select",
+      "description": "Select output formats for extracted content",
+      "default": ["markdown"],
+      "options": [
+        { "label": "Plain text", "value": "text" },
+        { "label": "Markdown", "value": "markdown" },
+        { "label": "HTML", "value": "html" }
+      ]
+    },
+    {
+      "title": "Scraping tool",
+      "name": "scrapingTool",
+      "type": "string",
+      "editor": "select",
+      "description": "Select scraping tool for extracting web pages",
+      "default": "raw-http",
+      "options": [
+        { "label": "Raw HTTP (Cheerio)", "value": "raw-http" },
+        { "label": "Browser (Playwright)", "value": "browser-playwright" }
+      ]
+    },
+    {
+      "title": "Request timeout (seconds)",
+      "name": "requestTimeoutSecs",
+      "type": "integer",
+      "editor": "number",
+      "description": "Maximum time in seconds for the request",
+      "default": 40
     }
   ]
 }
