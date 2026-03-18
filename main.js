@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import cafesdk from './sdk.js';
-import { runRAGWebBrowser } from './src/worker-main.js';
+const cafesdk = require('./sdk.js');
+const { runRAGWebBrowser } = require('./src/worker-main.js');
 
 const RESULT_TABLE_HEADERS = [
   { label: 'Query', key: 'query', format: 'text' },
@@ -20,25 +20,25 @@ const DEFAULT_INPUT = {
   maxResults: 3,
   outputFormats: ['markdown'],
   requestTimeoutSecs: 40,
-  scrapingTool: 'browser-playwright',
+  scrapingTool: 'raw-http',
 };
 
 async function run() {
   try {
     const inputJson = await cafesdk.parameter.getInputJSONObject();
-    await cafesdk.log.debug(`Input parameters: ${JSON.stringify(inputJson)}`);
+    console.log(`[DEBUG] Input parameters: ${JSON.stringify(inputJson)}`);
 
     const inputData = { ...DEFAULT_INPUT, ...inputJson };
 
     if (!inputData.query) {
-      await cafesdk.log.error('Missing required parameter: query');
+      console.error('[ERROR] Missing required parameter: query');
       await cafesdk.result.pushData({ error: 'Missing query parameter', status: 'failed' });
       return;
     }
 
     await cafesdk.result.setTableHeader(RESULT_TABLE_HEADERS);
 
-    await cafesdk.log.info(`Starting RAG Web Browser with query: ${inputData.query}`);
+    console.log(`[INFO] Starting RAG Web Browser with query: ${inputData.query}`);
 
     const results = await runRAGWebBrowser(inputData, cafesdk);
 
@@ -53,11 +53,11 @@ async function run() {
           markdown: item.markdown,
           html: item.html,
           status_code: item.crawl?.httpStatusCode || 200,
-          error: item.crawl?.error || null,
+          error: item.error || null,
         });
       }
     } else {
-      await cafesdk.log.warn('No results found');
+      console.warn('[WARN] No results found');
       await cafesdk.result.pushData({
         query: inputData.query,
         status: 'no_results',
@@ -65,9 +65,9 @@ async function run() {
       });
     }
 
-    await cafesdk.log.info(`Completed with ${Array.isArray(results) ? results.length : 0} results`);
+    console.log(`[INFO] Completed with ${Array.isArray(results) ? results.length : 0} results`);
   } catch (err) {
-    await cafesdk.log.error(`Execution error: ${err.message}`);
+    console.error(`[ERROR] Execution error: ${err.message}`);
     await cafesdk.result.pushData({ error: err.message, status: 'failed' });
     throw err;
   }

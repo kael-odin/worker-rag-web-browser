@@ -3,16 +3,16 @@
  * CafeScraper Worker for web content scraping and RAG pipelines
  */
 
-import { chromium } from 'playwright';
-import { readFile } from 'node:fs/promises';
-import http from 'node:http';
-import https from 'node:https';
-import { load } from 'cheerio';
-import { PlaywrightBlocker } from '@ghostery/adblocker-playwright';
+const { chromium } = require('playwright');
+const { readFile } = require('node:fs/promises');
+const http = require('node:http');
+const https = require('node:https');
+const { load } = require('cheerio');
+const { PlaywrightBlocker } = require('@ghostery/adblocker-playwright');
 
-import { scrapeOrganicResults } from '../dist/google-search/google-extractors-urls.js';
-import { processHtml } from '../dist/website-content-crawler/html-processing.js';
-import { htmlToMarkdown } from '../dist/website-content-crawler/markdown.js';
+const { scrapeOrganicResults } = require('../dist/google-search/google-extractors-urls.js');
+const { processHtml } = require('../dist/website-content-crawler/html-processing.js');
+const { htmlToMarkdown } = require('../dist/website-content-crawler/markdown.js');
 
 function htmlToText(html) {
   if (!html) return '';
@@ -101,7 +101,7 @@ async function fetchUrl(url, timeout = 30000) {
 }
 
 async function runGoogleSearch(query, maxResults, cafesdk) {
-  await cafesdk.log.info(`Running Google Search for: ${query}`);
+  console.log(`[INFO] Running Google Search for: ${query}`);
 
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`;
 
@@ -109,16 +109,16 @@ async function runGoogleSearch(query, maxResults, cafesdk) {
     const { html, statusCode } = await fetchUrl(searchUrl);
     
     if (statusCode !== 200) {
-      await cafesdk.log.warn(`Google search returned status ${statusCode}`);
+      console.log(`[WARN] Google search returned status ${statusCode}`);
     }
     
     const $ = load(html);
     const organicResults = scrapeOrganicResults($);
-    await cafesdk.log.info(`Found ${organicResults.length} organic results`);
+    console.log(`[INFO] Found ${organicResults.length} organic results`);
 
     return organicResults.slice(0, maxResults);
   } catch (err) {
-    await cafesdk.log.error(`Google search failed: ${err.message}`);
+    console.error(`[ERROR] Google search failed: ${err.message}`);
     return [];
   }
 }
@@ -126,19 +126,19 @@ async function runGoogleSearch(query, maxResults, cafesdk) {
 async function connectBrowser(cafesdk) {
   const proxyAuth = process.env.PROXY_AUTH;
   if (!proxyAuth) {
-    await cafesdk.log.warn('PROXY_AUTH environment variable not found, using local browser');
+    console.log('[WARN] PROXY_AUTH environment variable not found, using local browser');
     return { browser: null, isRemote: false };
   }
 
   const browserWSEndpoint = `ws://${proxyAuth}@chrome-ws-inner.cafescraper.com`;
-  await cafesdk.log.info(`Connecting to remote browser via CDP`);
+  console.log('[INFO] Connecting to remote browser via CDP');
 
   try {
     const browser = await chromium.connectOverCDP(browserWSEndpoint);
-    await cafesdk.log.info('Connected to remote browser successfully');
+    console.log('[INFO] Connected to remote browser successfully');
     return { browser, isRemote: true };
   } catch (err) {
-    await cafesdk.log.error(`Failed to connect to remote browser: ${err.message}`);
+    console.error(`[ERROR] Failed to connect to remote browser: ${err.message}`);
     return { browser: null, isRemote: false };
   }
 }
@@ -194,7 +194,7 @@ async function scrapeWithBrowser(urls, inputData, cafesdk) {
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
-    await cafesdk.log.info(`Scraping with Playwright: ${url}`);
+    console.log(`[INFO] Scraping with Playwright: ${url}`);
 
     let page = null;
     let localBrowser = null;
@@ -232,7 +232,7 @@ async function scrapeWithBrowser(urls, inputData, cafesdk) {
 
       results.push(createOutputItem(url, data, contentScraperSettings));
     } catch (err) {
-      await cafesdk.log.error(`Failed to scrape ${url}: ${err.message}`);
+      console.error(`[ERROR] Failed to scrape ${url}: ${err.message}`);
       results.push({
         url,
         error: err.message,
@@ -273,7 +273,7 @@ async function scrapeWithHttp(urls, inputData, cafesdk) {
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
-    await cafesdk.log.info(`Scraping with HTTP: ${url}`);
+    console.log(`[INFO] Scraping with HTTP: ${url}`);
 
     try {
       const { html, statusCode } = await fetchUrl(url, requestTimeoutSecs * 1000);
@@ -287,7 +287,7 @@ async function scrapeWithHttp(urls, inputData, cafesdk) {
 
       results.push(createOutputItem(url, data, contentScraperSettings));
     } catch (err) {
-      await cafesdk.log.error(`Failed to scrape ${url}: ${err.message}`);
+      console.error(`[ERROR] Failed to scrape ${url}: ${err.message}`);
       results.push({
         url,
         error: err.message,
@@ -373,19 +373,19 @@ async function runRAGWebBrowser(inputData, cafesdk) {
   let searchResults = null;
 
   if (isUrl) {
-    await cafesdk.log.info(`Direct URL provided: ${query}`);
+    console.log(`[INFO] Direct URL provided: ${query}`);
     urlsToScrape = [query];
   } else if (query) {
     searchResults = await runGoogleSearch(query, maxResults, cafesdk);
     urlsToScrape = searchResults.map(r => r.url).filter(Boolean);
-    await cafesdk.log.info(`Found ${urlsToScrape.length} URLs to scrape`);
+    console.log(`[INFO] Found ${urlsToScrape.length} URLs to scrape`);
   } else {
-    await cafesdk.log.error('No query or URL provided');
+    console.error('[ERROR] No query or URL provided');
     return [];
   }
 
   if (urlsToScrape.length === 0) {
-    await cafesdk.log.warn('No URLs to scrape');
+    console.log('[WARN] No URLs to scrape');
     return [];
   }
 
@@ -407,4 +407,4 @@ async function runRAGWebBrowser(inputData, cafesdk) {
   return results;
 }
 
-export { runRAGWebBrowser };
+module.exports = { runRAGWebBrowser };

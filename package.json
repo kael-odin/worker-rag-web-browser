@@ -1,7 +1,6 @@
 {
   "name": "worker-rag-web-browser",
   "version": "1.0.0",
-  "type": "module",
   "description": "CafeScraper Worker: RAG Web Browser - Google Search and web content extraction for LLM",
   "main": "main.js",
   "engines": {

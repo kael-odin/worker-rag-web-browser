@@ -8,7 +8,7 @@
       "type": "string",
       "editor": "textfield",
       "description": "Enter Google Search keywords or a URL of a specific web page",
-      "default": "web browser for RAG pipelines",
+      "default": "https://github.com/microsoft/vscode",
       "required": true
     },
     {
@@ -40,10 +40,10 @@
       "type": "string",
       "editor": "select",
       "description": "Select scraping tool for extracting web pages",
-      "default": "browser-playwright",
+      "default": "raw-http",
       "options": [
-        { "label": "Browser (Playwright)", "value": "browser-playwright" },
-        { "label": "Raw HTTP (Cheerio)", "value": "raw-http" }
+        { "label": "Raw HTTP (Cheerio)", "value": "raw-http" },
+        { "label": "Browser (Playwright)", "value": "browser-playwright" }
       ]
     },
     {
@@ -56,5 +56,6 @@
       "minimum": 1,
       "maximum": 300
     }
-  ]
+  ],
+  "required": ["query"]
 }
