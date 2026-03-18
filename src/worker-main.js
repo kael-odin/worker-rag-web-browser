@@ -9,9 +9,33 @@ const https = require('node:https');
 const { load } = require('cheerio');
 const TurndownService = require('turndown');
 const { gfm } = require('joplin-turndown-plugin-gfm');
+const { JSDOM } = require('jsdom');
+const { Readability } = require('@mozilla/readability');
 
 const turndownService = new TurndownService();
 turndownService.use(gfm);
+
+const DEFAULT_REMOVE_ELEMENTS = "nav, footer, script, style, noscript, svg, img[src^='data:'],\n[role=\"alert\"],\n[role=\"banner\"],\n[role=\"dialog\"],\n[role=\"alertdialog\"],\n[role=\"region\"][aria-label*=\"skip\" i],\n[aria-modal=\"true\"]";
+
+function getLogger(cafesdk) {
+  if (cafesdk && cafesdk.log) {
+    return cafesdk.log;
+  }
+  return console;
+}
+
+const COOKIE_WARNING_SELECTORS = [
+  '[id*="cookie" i]',
+  '[class*="cookie" i]',
+  '[id*="consent" i]',
+  '[class*="consent" i]',
+  '[id*="gdpr" i]',
+  '[class*="gdpr" i]',
+  '[aria-label*="cookie" i]',
+  '[aria-label*="consent" i]',
+  '[data-cookie]',
+  '[data-consent]',
+].join(', ');
 
 function htmlToText(html) {
   if (!html) return '';
@@ -29,45 +53,64 @@ function htmlToMarkdown(html) {
   }
 }
 
-function processHtml(html, settings) {
+function readableTextFromHtml(html, url) {
+  if (!html) return '';
+  const dom = new JSDOM(html, { url: url || 'https://example.com' });
+  const reader = new Readability(dom.window.document);
+  const article = reader.parse();
+  return article?.textContent || '';
+}
+
+function processHtml(html, settings, url) {
   if (!html) return '';
   let $ = load(html);
-  
+
   if (settings.removeElementsCssSelector) {
     $(settings.removeElementsCssSelector).remove();
   }
-  
-  return $('body').html() || html;
+
+  if (settings.removeCookieWarnings) {
+    $(COOKIE_WARNING_SELECTORS).remove();
+  }
+
+  const bodyHtml = $('body').html() || html;
+
+  if (settings.htmlTransformer === 'readableText') {
+    const readableText = readableTextFromHtml(bodyHtml, url);
+    if (settings.readableTextCharThreshold && readableText.length < settings.readableTextCharThreshold) {
+      return bodyHtml;
+    }
+    const cleanedText = readableText.replace(/\s+/g, ' ').trim();
+    return cleanedText ? `<html><body>${cleanedText}</body></html>` : bodyHtml;
+  }
+
+  return bodyHtml;
 }
 
 function scrapeGoogleResults($) {
   const results = [];
   const seenUrls = new Set();
-  
-  const selectors = [
-    '#search .g',
-    '#rso .g',
-    '.g[data-hveid]'
-  ];
-  
+
+  const selectors = ['#search .g', '#rso .g', '.g[data-hveid]'];
+
   for (const selector of selectors) {
     $(selector).each((_, el) => {
       const $el = $(el);
       const title = $el.find('h3').first().text();
       const link = $el.find('a').first().attr('href');
       const desc = $el.find('[data-sncf], .VwiC3b, .IsZvec').text();
-      
+
       if (title && link && link.startsWith('http') && !seenUrls.has(link)) {
         seenUrls.add(link);
         results.push({
           title,
           url: link,
-          description: desc.trim()
+          description: desc.trim(),
         });
       }
     });
   }
-  
+
   return results;
 }
 
@@ -76,9 +119,9 @@ function createOutputItem(url, data, settings) {
     url,
     crawl: {
       httpStatusCode: data.statusCode || 200,
-      httpStatusMessage: 'OK',
+      httpStatusMessage: data.statusMessage || 'OK',
       loadedAt: new Date().toISOString(),
-      requestStatus: 'handled',
+      requestStatus: data.statusCode && data.statusCode >= 400 ? 'failed' : 'handled',
       uniqueKey: Math.random().toString(36).substring(7),
     },
     metadata: {
@@ -88,6 +131,10 @@ function createOutputItem(url, data, settings) {
       languageCode: data.languageCode || 'en',
     },
   };
+
+  if (data.searchResult) {
+    result.searchResult = data.searchResult;
+  }
 
   if (settings.outputFormats && settings.outputFormats.includes('markdown')) {
     result.markdown = data.markdown || '';
@@ -102,89 +149,182 @@ function createOutputItem(url, data, settings) {
   return result;
 }
 
-async function fetchUrl(url, timeout = 30000) {
+async function fetchUrl(url, timeout = 30000, log = console) {
   return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https:') ? https : http;
+    const proxyAuth = process.env.PROXY_AUTH;
+    const proxyHost = 'proxy-inner.cafescraper.com';
+    const proxyPort = 6000;
+
+    const requestHeaders = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
+    };
+
     const timeoutId = setTimeout(() => {
       reject(new Error(`Request timeout after ${timeout}ms`));
     }, timeout);
 
-    const req = protocol.get(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-    }, (response) => {
-      clearTimeout(timeoutId);
-      let data = '';
-      response.on('data', (chunk) => {
-        data += chunk;
+    if (proxyAuth) {
+      const req = http.request(
+        {
+          host: proxyHost,
+          port: proxyPort,
+          method: 'CONNECT',
+          path: url,
+          headers: {
+            Host: proxyHost,
+            'Proxy-Authorization': `Basic ${Buffer.from(proxyAuth).toString('base64')}`,
+          },
+        },
+        (res) => {
+          if (res.statusCode !== 200) {
+            clearTimeout(timeoutId);
+            reject(new Error(`Proxy CONNECT failed with status ${res.statusCode}`));
+            return;
+          }
+
+          const targetUrl = new URL(url);
+          const protocol = targetUrl.protocol === 'https:' ? https : http;
+          const requestOptions = {
+            protocol: targetUrl.protocol,
+            hostname: targetUrl.hostname,
+            port: targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80),
+            path: `${targetUrl.pathname}${targetUrl.search}`,
+            method: 'GET',
+            headers: requestHeaders,
+            socket: res.socket,
+          };
+
+          const request = protocol.request(requestOptions, (response) => {
+            clearTimeout(timeoutId);
+            let data = '';
+            response.on('data', (chunk) => {
+              data += chunk;
+            });
+            response.on('end', () => {
+              resolve({ html: data, statusCode: response.statusCode, statusMessage: response.statusMessage });
+            });
+          });
+
+          request.on('error', (err) => {
+            clearTimeout(timeoutId);
+            reject(err);
+          });
+
+          request.end();
+        }
+      );
+
+      req.on('error', (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
       });
-      response.on('end', () => {
-        resolve({ html: data, statusCode: response.statusCode });
+
+      req.end();
+    } else {
+      if (log.warn) {
+        log.warn('PROXY_AUTH not set, performing direct HTTP request');
+      }
+      const protocol = url.startsWith('https:') ? https : http;
+      const req = protocol.get(
+        url,
+        {
+          headers: requestHeaders,
+        },
+        (response) => {
+          clearTimeout(timeoutId);
+          let data = '';
+          response.on('data', (chunk) => {
+            data += chunk;
+          });
+          response.on('end', () => {
+            resolve({ html: data, statusCode: response.statusCode, statusMessage: response.statusMessage });
+          });
+        }
+      );
+      req.on('error', (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
       });
-    });
-    req.on('error', (err) => {
-      clearTimeout(timeoutId);
-      reject(err);
-    });
+    }
   });
 }
 
-async function runGoogleSearch(query, maxResults, cafesdk) {
-  const log = cafesdk?.log || console;
-  log.info && await log.info(`Running Google Search for: ${query}`);
-  console.log(`[INFO] Running Google Search for: ${query}`);
+async function runGoogleSearch(query, maxResults, serpMaxRetries, log) {
+  if (log.info) {
+    await log.info(`Running Google Search for: ${query}`);
+  }
 
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`;
+  const retries = Math.max(0, serpMaxRetries || 0);
 
-  try {
-    const { html, statusCode } = await fetchUrl(searchUrl);
-    
-    if (statusCode !== 200) {
-      console.log(`[WARN] Google search returned status ${statusCode}`);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const { html, statusCode } = await fetchUrl(searchUrl, 30000, log);
+
+      if (statusCode !== 200 && log.warn) {
+        await log.warn(`Google search returned status ${statusCode}`);
+      }
+
+      const $ = load(html);
+      const organicResults = scrapeGoogleResults($);
+      if (log.info) {
+        await log.info(`Found ${organicResults.length} organic results`);
+      }
+
+      return organicResults.slice(0, maxResults);
+    } catch (err) {
+      if (attempt === retries) {
+        if (log.error) {
+          await log.error(`Google search failed: ${err.message}`);
+        }
+        return [];
+      }
     }
-    
-    const $ = load(html);
-    const organicResults = scrapeGoogleResults($);
-    console.log(`[INFO] Found ${organicResults.length} organic results`);
-
-    return organicResults.slice(0, maxResults);
-  } catch (err) {
-    console.error(`[ERROR] Google search failed: ${err.message}`);
-    return [];
   }
+
+  return [];
 }
 
-async function connectBrowser(cafesdk) {
+async function connectBrowser(log) {
   const proxyAuth = process.env.PROXY_AUTH;
   if (!proxyAuth) {
-    console.log('[WARN] PROXY_AUTH not set, using local browser');
+    if (log.warn) {
+      await log.warn('PROXY_AUTH not set, using local browser');
+    }
     return { browser: null, isRemote: false };
   }
 
   const browserWSEndpoint = `ws://${proxyAuth}@chrome-ws-inner.cafescraper.com`;
-  console.log('[INFO] Connecting to remote browser via CDP');
+  if (log.info) {
+    await log.info('Connecting to remote browser via CDP');
+  }
 
   try {
     const browser = await chromium.connectOverCDP(browserWSEndpoint);
-    console.log('[INFO] Connected to remote browser successfully');
+    if (log.info) {
+      await log.info('Connected to remote browser successfully');
+    }
     return { browser, isRemote: true };
   } catch (err) {
-    console.error(`[ERROR] Failed to connect to remote browser: ${err.message}`);
+    if (log.error) {
+      await log.error(`Failed to connect to remote browser: ${err.message}`);
+    }
     return { browser: null, isRemote: false };
   }
 }
 
-async function handleContent($, html, url, settings, statusCode) {
-  const processedHtml = processHtml(html, settings);
-  
+async function handleContent($, html, url, settings, statusCode, statusMessage) {
+  const processedHtml = processHtml(html, settings, url);
+
   const data = {
     title: $('title').first().text(),
     description: $('meta[name=description]').first().attr('content') || '',
     languageCode: $('html').first().attr('lang') || 'en',
     statusCode,
+    statusMessage,
     text: settings.outputFormats?.includes('text') ? htmlToText(processedHtml) : undefined,
     markdown: settings.outputFormats?.includes('markdown') ? htmlToMarkdown(processedHtml) : undefined,
     html: settings.outputFormats?.includes('html') ? processedHtml : undefined,
@@ -193,15 +333,24 @@ async function handleContent($, html, url, settings, statusCode) {
   return data;
 }
 
-async function scrapeWithBrowser(urls, inputData, cafesdk) {
+async function scrapeWithBrowser(urls, inputData, log) {
   const results = [];
-  const { contentScraperSettings, searchResults, requestTimeoutSecs } = inputData;
+  const {
+    contentScraperSettings,
+    searchResults,
+    requestTimeoutSecs,
+    dynamicContentWaitSecs,
+    maxRequestRetries,
+    removeCookieWarnings,
+  } = inputData;
 
-  const { browser } = await connectBrowser(cafesdk);
+  const { browser } = await connectBrowser(log);
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
-    console.log(`[INFO] Scraping with Playwright: ${url}`);
+    if (log.info) {
+      await log.info(`Scraping with Playwright: ${url}`);
+    }
 
     let page = null;
     let localBrowser = null;
@@ -214,21 +363,57 @@ async function scrapeWithBrowser(urls, inputData, cafesdk) {
         page = await localBrowser.newPage();
       }
 
-      await page.goto(url, { timeout: (requestTimeoutSecs || 40) * 1000, waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(2000);
+      const retries = Math.max(0, maxRequestRetries || 0);
+      let lastError = null;
+
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          await page.goto(url, {
+            timeout: (requestTimeoutSecs || 40) * 1000,
+            waitUntil: 'domcontentloaded',
+          });
+
+          if (dynamicContentWaitSecs && dynamicContentWaitSecs > 0) {
+            await page.waitForTimeout(dynamicContentWaitSecs * 1000);
+          } else {
+            await page.waitForTimeout(2000);
+          }
+
+          if (removeCookieWarnings) {
+            await page.evaluate((selectors) => {
+              document.querySelectorAll(selectors).forEach((el) => el.remove());
+            }, COOKIE_WARNING_SELECTORS);
+          }
+
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (attempt === retries) {
+            throw err;
+          }
+          await page.waitForTimeout(1000);
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
 
       const html = await page.content();
       const $ = load(html);
 
-      const data = await handleContent($, html, url, contentScraperSettings, 200);
-      
+      const data = await handleContent($, html, url, contentScraperSettings, 200, 'OK');
+
       if (searchResults && searchResults[i]) {
         data.searchResult = searchResults[i];
       }
 
       results.push(createOutputItem(url, data, contentScraperSettings));
     } catch (err) {
-      console.error(`[ERROR] Failed to scrape ${url}: ${err.message}`);
+      if (log.error) {
+        await log.error(`Failed to scrape ${url}: ${err.message}`);
+      }
       results.push({
         url,
         error: err.message,
@@ -236,42 +421,77 @@ async function scrapeWithBrowser(urls, inputData, cafesdk) {
       });
     } finally {
       if (page) {
-        try { await page.close(); } catch {}
+        try {
+          await page.close();
+        } catch {}
       }
       if (localBrowser) {
-        try { await localBrowser.close(); } catch {}
+        try {
+          await localBrowser.close();
+        } catch {}
       }
     }
   }
 
   if (browser) {
-    try { await browser.close(); } catch {}
+    try {
+      await browser.close();
+    } catch {}
   }
 
   return results;
 }
 
-async function scrapeWithHttp(urls, inputData, cafesdk) {
+async function scrapeWithHttp(urls, inputData, log) {
   const results = [];
-  const { contentScraperSettings, searchResults, requestTimeoutSecs } = inputData;
+  const { contentScraperSettings, searchResults, requestTimeoutSecs, maxRequestRetries } = inputData;
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
-    console.log(`[INFO] Scraping with HTTP: ${url}`);
+    if (log.info) {
+      await log.info(`Scraping with HTTP: ${url}`);
+    }
 
     try {
-      const { html, statusCode } = await fetchUrl(url, (requestTimeoutSecs || 40) * 1000);
+      const retries = Math.max(0, maxRequestRetries || 0);
+      let lastError = null;
+      let html = '';
+      let statusCode = 0;
+      let statusMessage = 'OK';
+
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const response = await fetchUrl(url, (requestTimeoutSecs || 40) * 1000, log);
+          html = response.html;
+          statusCode = response.statusCode;
+          statusMessage = response.statusMessage || 'OK';
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (attempt === retries) {
+            throw err;
+          }
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+
       const $ = load(html);
 
-      const data = await handleContent($, html, url, contentScraperSettings, statusCode);
-      
+      const data = await handleContent($, html, url, contentScraperSettings, statusCode, statusMessage);
+
       if (searchResults && searchResults[i]) {
         data.searchResult = searchResults[i];
       }
 
       results.push(createOutputItem(url, data, contentScraperSettings));
     } catch (err) {
-      console.error(`[ERROR] Failed to scrape ${url}: ${err.message}`);
+      if (log.error) {
+        await log.error(`Failed to scrape ${url}: ${err.message}`);
+      }
       results.push({
         url,
         error: err.message,
@@ -285,26 +505,55 @@ async function scrapeWithHttp(urls, inputData, cafesdk) {
 
 function validateInput(input) {
   const validated = { ...input };
-  
+
   validated.maxResults = Math.min(100, Math.max(1, validated.maxResults || 3));
   validated.requestTimeoutSecs = Math.min(300, Math.max(1, validated.requestTimeoutSecs || 40));
-  
+
   if (!validated.outputFormats || validated.outputFormats.length === 0) {
     validated.outputFormats = ['markdown'];
+  } else if (validated.outputFormats.some((format) => !['text', 'markdown', 'html'].includes(format))) {
+    throw new Error('The `outputFormats` array may only contain `text`, `markdown`, or `html`.');
   }
-  
+
   if (!validated.scrapingTool) {
     validated.scrapingTool = 'raw-http';
+  } else if (validated.scrapingTool !== 'browser-playwright' && validated.scrapingTool !== 'raw-http') {
+    throw new Error('The `scrapingTool` parameter must be either `browser-playwright` or `raw-http`.');
   }
-  
+
   if (!validated.removeElementsCssSelector) {
-    validated.removeElementsCssSelector = 'nav, footer, script, style, noscript, svg';
+    validated.removeElementsCssSelector = DEFAULT_REMOVE_ELEMENTS;
+  }
+
+  if (!validated.maxRequestRetries && validated.maxRequestRetries !== 0) {
+    validated.maxRequestRetries = 1;
+  }
+
+  if (!validated.dynamicContentWaitSecs && validated.dynamicContentWaitSecs !== 0) {
+    validated.dynamicContentWaitSecs = 10;
+  }
+
+  if (validated.removeCookieWarnings === undefined) {
+    validated.removeCookieWarnings = true;
+  }
+
+  if (!validated.htmlTransformer) {
+    validated.htmlTransformer = 'none';
+  }
+
+  if (!validated.readableTextCharThreshold) {
+    validated.readableTextCharThreshold = 0;
+  }
+
+  if (!validated.serpMaxRetries && validated.serpMaxRetries !== 0) {
+    validated.serpMaxRetries = 2;
   }
 
   return validated;
 }
 
 async function runRAGWebBrowser(inputData, cafesdk) {
+  const log = getLogger(cafesdk);
   const input = validateInput(inputData);
 
   const {
@@ -314,11 +563,20 @@ async function runRAGWebBrowser(inputData, cafesdk) {
     scrapingTool,
     requestTimeoutSecs,
     removeElementsCssSelector,
+    removeCookieWarnings,
+    htmlTransformer,
+    readableTextCharThreshold,
+    serpMaxRetries,
+    dynamicContentWaitSecs,
+    maxRequestRetries,
   } = input;
 
   const contentScraperSettings = {
     outputFormats,
     removeElementsCssSelector,
+    removeCookieWarnings,
+    htmlTransformer,
+    readableTextCharThreshold,
   };
 
   const isUrl = query && query.match(/^https?:\/\//);
@@ -327,38 +585,36 @@ async function runRAGWebBrowser(inputData, cafesdk) {
   let searchResults = null;
 
   if (isUrl) {
-    console.log(`[INFO] Direct URL provided: ${query}`);
+    await log.info(`Direct URL provided: ${query}`);
     urlsToScrape = [query];
   } else if (query) {
-    searchResults = await runGoogleSearch(query, maxResults, cafesdk);
-    urlsToScrape = searchResults.map(r => r.url).filter(Boolean);
-    console.log(`[INFO] Found ${urlsToScrape.length} URLs to scrape`);
+    searchResults = await runGoogleSearch(query, maxResults, serpMaxRetries, log);
+    urlsToScrape = searchResults.map((r) => r.url).filter(Boolean);
+    await log.info(`Found ${urlsToScrape.length} URLs to scrape`);
   } else {
-    console.error('[ERROR] No query or URL provided');
+    await log.error('No query or URL provided');
     return [];
   }
 
   if (urlsToScrape.length === 0) {
-    console.log('[WARN] No URLs to scrape');
+    await log.warn('No URLs to scrape');
     return [];
   }
 
-  let results;
+  const runtimeSettings = {
+    ...input,
+    contentScraperSettings,
+    searchResults,
+    requestTimeoutSecs,
+    dynamicContentWaitSecs,
+    maxRequestRetries,
+  };
+
   if (scrapingTool === 'browser-playwright') {
-    results = await scrapeWithBrowser(
-      urlsToScrape,
-      { ...input, contentScraperSettings, searchResults },
-      cafesdk
-    );
-  } else {
-    results = await scrapeWithHttp(
-      urlsToScrape,
-      { ...input, contentScraperSettings, searchResults },
-      cafesdk
-    );
+    return scrapeWithBrowser(urlsToScrape, runtimeSettings, log);
   }
 
-  return results;
+  return scrapeWithHttp(urlsToScrape, runtimeSettings, log);
 }
 
 module.exports = { runRAGWebBrowser };
