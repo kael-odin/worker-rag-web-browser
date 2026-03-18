@@ -4,33 +4,71 @@
  */
 
 const { chromium } = require('playwright');
-const { readFile } = require('node:fs/promises');
 const http = require('node:http');
 const https = require('node:https');
 const { load } = require('cheerio');
-const { PlaywrightBlocker } = require('@ghostery/adblocker-playwright');
+const TurndownService = require('turndown');
+const { gfm } = require('joplin-turndown-plugin-gfm');
 
-const { scrapeOrganicResults } = require('../dist/google-search/google-extractors-urls.js');
-const { processHtml } = require('../dist/website-content-crawler/html-processing.js');
-const { htmlToMarkdown } = require('../dist/website-content-crawler/markdown.js');
+const turndownService = new TurndownService();
+turndownService.use(gfm);
 
 function htmlToText(html) {
   if (!html) return '';
   const $ = load(html);
-  $('script, style, noscript').remove();
+  $('script, style, noscript, nav, footer, header').remove();
   return $('body').text().replace(/\s+/g, ' ').trim();
 }
 
-let ghosteryBlocker = null;
-
-async function getGhosteryBlocker() {
-  if (ghosteryBlocker) return ghosteryBlocker;
+function htmlToMarkdown(html) {
+  if (!html) return '';
   try {
-    ghosteryBlocker = await PlaywrightBlocker.deserialize(await readFile('./blockers/fanboy-cookiemonster.bin'));
-    return ghosteryBlocker;
+    return turndownService.turndown(html);
   } catch (err) {
-    return null;
+    return '';
   }
+}
+
+function processHtml(html, settings) {
+  if (!html) return '';
+  let $ = load(html);
+  
+  if (settings.removeElementsCssSelector) {
+    $(settings.removeElementsCssSelector).remove();
+  }
+  
+  return $('body').html() || html;
+}
+
+function scrapeGoogleResults($) {
+  const results = [];
+  const seenUrls = new Set();
+  
+  const selectors = [
+    '#search .g',
+    '#rso .g',
+    '.g[data-hveid]'
+  ];
+  
+  for (const selector of selectors) {
+    $(selector).each((_, el) => {
+      const $el = $(el);
+      const title = $el.find('h3').first().text();
+      const link = $el.find('a').first().attr('href');
+      const desc = $el.find('[data-sncf], .VwiC3b, .IsZvec').text();
+      
+      if (title && link && link.startsWith('http') && !seenUrls.has(link)) {
+        seenUrls.add(link);
+        results.push({
+          title,
+          url: link,
+          description: desc.trim()
+        });
+      }
+    });
+  }
+  
+  return results;
 }
 
 function createOutputItem(url, data, settings) {
@@ -39,30 +77,25 @@ function createOutputItem(url, data, settings) {
     crawl: {
       httpStatusCode: data.statusCode || 200,
       httpStatusMessage: 'OK',
-      loadedAt: new Date(),
+      loadedAt: new Date().toISOString(),
       requestStatus: 'handled',
       uniqueKey: Math.random().toString(36).substring(7),
     },
-    searchResult: data.searchResult || {
-      title: data.title,
-      description: data.description,
-      url,
-    },
     metadata: {
-      title: data.title,
+      title: data.title || '',
       url,
-      description: data.description,
+      description: data.description || '',
       languageCode: data.languageCode || 'en',
     },
   };
 
-  if (settings.outputFormats.includes('markdown')) {
+  if (settings.outputFormats && settings.outputFormats.includes('markdown')) {
     result.markdown = data.markdown || '';
   }
-  if (settings.outputFormats.includes('text')) {
+  if (settings.outputFormats && settings.outputFormats.includes('text')) {
     result.text = data.text || '';
   }
-  if (settings.outputFormats.includes('html')) {
+  if (settings.outputFormats && settings.outputFormats.includes('html')) {
     result.html = data.html || '';
   }
 
@@ -81,7 +114,6 @@ async function fetchUrl(url, timeout = 30000) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'identity',
       },
     }, (response) => {
       clearTimeout(timeoutId);
@@ -90,7 +122,7 @@ async function fetchUrl(url, timeout = 30000) {
         data += chunk;
       });
       response.on('end', () => {
-        resolve({ html: data, statusCode: response.statusCode, headers: response.headers });
+        resolve({ html: data, statusCode: response.statusCode });
       });
     });
     req.on('error', (err) => {
@@ -101,6 +133,8 @@ async function fetchUrl(url, timeout = 30000) {
 }
 
 async function runGoogleSearch(query, maxResults, cafesdk) {
+  const log = cafesdk?.log || console;
+  log.info && await log.info(`Running Google Search for: ${query}`);
   console.log(`[INFO] Running Google Search for: ${query}`);
 
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`;
@@ -113,7 +147,7 @@ async function runGoogleSearch(query, maxResults, cafesdk) {
     }
     
     const $ = load(html);
-    const organicResults = scrapeOrganicResults($);
+    const organicResults = scrapeGoogleResults($);
     console.log(`[INFO] Found ${organicResults.length} organic results`);
 
     return organicResults.slice(0, maxResults);
@@ -126,7 +160,7 @@ async function runGoogleSearch(query, maxResults, cafesdk) {
 async function connectBrowser(cafesdk) {
   const proxyAuth = process.env.PROXY_AUTH;
   if (!proxyAuth) {
-    console.log('[WARN] PROXY_AUTH environment variable not found, using local browser');
+    console.log('[WARN] PROXY_AUTH not set, using local browser');
     return { browser: null, isRemote: false };
   }
 
@@ -143,43 +177,17 @@ async function connectBrowser(cafesdk) {
   }
 }
 
-async function waitForDynamicContent(page, maxWaitSecs) {
-  const hardDelay = Math.min(1000, Math.floor(0.3 * maxWaitSecs * 1000));
-  await page.waitForTimeout(hardDelay);
-  
-  try {
-    await Promise.race([
-      page.waitForLoadState('networkidle', { timeout: (maxWaitSecs * 1000) - hardDelay }),
-      page.waitForTimeout((maxWaitSecs * 1000) - hardDelay),
-    ]);
-  } catch {
-    // Ignore timeout
-  }
-}
-
 async function handleContent($, html, url, settings, statusCode) {
-  const $html = $('html');
-  const htmlContent = $html.html() || html;
+  const processedHtml = processHtml(html, settings);
   
-  const processedHtml = await processHtml(htmlContent, url, settings, $);
-  
-  const isTooLarge = processedHtml.length > (settings.maxHtmlCharsToProcess || 1500000);
-  let text;
-  if (isTooLarge) {
-    text = load(processedHtml).text();
-  } else {
-    const processedHtmlForText = load(processedHtml).html();
-    text = htmlToText(processedHtmlForText);
-  }
-
   const data = {
     title: $('title').first().text(),
-    description: $('meta[name=description]').first().attr('content') ?? undefined,
-    languageCode: $html.first().attr('lang') ?? 'en',
+    description: $('meta[name=description]').first().attr('content') || '',
+    languageCode: $('html').first().attr('lang') || 'en',
     statusCode,
-    text: settings.outputFormats.includes('text') ? text : undefined,
-    markdown: settings.outputFormats.includes('markdown') ? htmlToMarkdown(processedHtml) : undefined,
-    html: settings.outputFormats.includes('html') ? processedHtml : undefined,
+    text: settings.outputFormats?.includes('text') ? htmlToText(processedHtml) : undefined,
+    markdown: settings.outputFormats?.includes('markdown') ? htmlToMarkdown(processedHtml) : undefined,
+    html: settings.outputFormats?.includes('html') ? processedHtml : undefined,
   };
 
   return data;
@@ -188,9 +196,8 @@ async function handleContent($, html, url, settings, statusCode) {
 async function scrapeWithBrowser(urls, inputData, cafesdk) {
   const results = [];
   const { contentScraperSettings, searchResults, requestTimeoutSecs } = inputData;
-  const blocker = await getGhosteryBlocker();
 
-  const { browser, isRemote } = await connectBrowser(cafesdk);
+  const { browser } = await connectBrowser(cafesdk);
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
@@ -207,19 +214,8 @@ async function scrapeWithBrowser(urls, inputData, cafesdk) {
         page = await localBrowser.newPage();
       }
 
-      if (blocker && contentScraperSettings.removeCookieWarnings) {
-        try {
-          await blocker.enableBlockingInPage(page);
-        } catch {
-          // Ignore blocker errors
-        }
-      }
-
-      await page.goto(url, { timeout: requestTimeoutSecs * 1000, waitUntil: 'domcontentloaded' });
-
-      if (contentScraperSettings.dynamicContentWaitSecs > 0) {
-        await waitForDynamicContent(page, contentScraperSettings.dynamicContentWaitSecs);
-      }
+      await page.goto(url, { timeout: (requestTimeoutSecs || 40) * 1000, waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(2000);
 
       const html = await page.content();
       const $ = load(html);
@@ -240,28 +236,16 @@ async function scrapeWithBrowser(urls, inputData, cafesdk) {
       });
     } finally {
       if (page) {
-        try {
-          await page.close();
-        } catch {
-          // Ignore
-        }
+        try { await page.close(); } catch {}
       }
       if (localBrowser) {
-        try {
-          await localBrowser.close();
-        } catch {
-          // Ignore
-        }
+        try { await localBrowser.close(); } catch {}
       }
     }
   }
 
   if (browser) {
-    try {
-      await browser.close();
-    } catch {
-      // Ignore
-    }
+    try { await browser.close(); } catch {}
   }
 
   return results;
@@ -276,7 +260,7 @@ async function scrapeWithHttp(urls, inputData, cafesdk) {
     console.log(`[INFO] Scraping with HTTP: ${url}`);
 
     try {
-      const { html, statusCode } = await fetchUrl(url, requestTimeoutSecs * 1000);
+      const { html, statusCode } = await fetchUrl(url, (requestTimeoutSecs || 40) * 1000);
       const $ = load(html);
 
       const data = await handleContent($, html, url, contentScraperSettings, statusCode);
@@ -299,52 +283,29 @@ async function scrapeWithHttp(urls, inputData, cafesdk) {
   return results;
 }
 
-function validateAndFillInput(input) {
+function validateInput(input) {
   const validated = { ...input };
-
-  const validateRange = (value, min, max, defaultValue, fieldName) => {
-    if (value === undefined) {
-      return defaultValue;
-    }
-    const num = typeof value === 'string' ? Number(value) : value;
-    if (num < min) return min;
-    if (num > max) return max;
-    return num;
-  };
-
-  validated.maxResults = validateRange(validated.maxResults, 1, 100, 3);
-  validated.requestTimeoutSecs = validateRange(validated.requestTimeoutSecs, 1, 300, 40);
-  validated.maxRequestRetries = validateRange(validated.maxRequestRetries, 0, 10, 2);
-
+  
+  validated.maxResults = Math.min(100, Math.max(1, validated.maxResults || 3));
+  validated.requestTimeoutSecs = Math.min(300, Math.max(1, validated.requestTimeoutSecs || 40));
+  
   if (!validated.outputFormats || validated.outputFormats.length === 0) {
     validated.outputFormats = ['markdown'];
   }
-
+  
   if (!validated.scrapingTool) {
     validated.scrapingTool = 'raw-http';
   }
-
+  
   if (!validated.removeElementsCssSelector) {
-    validated.removeElementsCssSelector = 'nav, footer, script, style, noscript, svg, img[src^="data:"]';
-  }
-
-  if (!validated.htmlTransformer) {
-    validated.htmlTransformer = 'none';
-  }
-
-  if (validated.removeCookieWarnings === undefined) {
-    validated.removeCookieWarnings = true;
-  }
-
-  if (!validated.dynamicContentWaitSecs || validated.dynamicContentWaitSecs >= validated.requestTimeoutSecs) {
-    validated.dynamicContentWaitSecs = Math.round(validated.requestTimeoutSecs / 2);
+    validated.removeElementsCssSelector = 'nav, footer, script, style, noscript, svg';
   }
 
   return validated;
 }
 
 async function runRAGWebBrowser(inputData, cafesdk) {
-  const input = validateAndFillInput(inputData);
+  const input = validateInput(inputData);
 
   const {
     query,
@@ -352,19 +313,12 @@ async function runRAGWebBrowser(inputData, cafesdk) {
     outputFormats,
     scrapingTool,
     requestTimeoutSecs,
-    dynamicContentWaitSecs,
     removeElementsCssSelector,
-    htmlTransformer,
-    removeCookieWarnings,
   } = input;
 
   const contentScraperSettings = {
     outputFormats,
-    removeCookieWarnings,
     removeElementsCssSelector,
-    htmlTransformer,
-    dynamicContentWaitSecs,
-    maxHtmlCharsToProcess: 1500000,
   };
 
   const isUrl = query && query.match(/^https?:\/\//);
