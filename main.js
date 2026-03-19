@@ -37,22 +37,33 @@ const DEFAULT_INPUT = {
     '[aria-modal="true"]',
 };
 
+async function safeLog(log, level, message) {
+  try {
+    if (log && typeof log[level] === 'function') {
+      await log[level](message);
+    }
+  } catch (e) {
+    console.error(`Failed to log ${level}:`, message);
+  }
+}
+
 async function run() {
   try {
     const inputJson = await cafesdk.parameter.getInputJSONObject();
-    await cafesdk.log.debug(`Input parameters: ${JSON.stringify(inputJson)}`);
+    await safeLog(cafesdk.log, 'debug', `Input parameters: ${JSON.stringify(inputJson)}`);
 
     const inputData = { ...DEFAULT_INPUT, ...inputJson };
 
     if (!inputData.query) {
-      await cafesdk.log.error('Missing required parameter: query');
+      await safeLog(cafesdk.log, 'error', 'Missing required parameter: query');
+      await cafesdk.result.setTableHeader(RESULT_TABLE_HEADERS);
       await cafesdk.result.pushData({ error: 'Missing query parameter', status: 'failed' });
       return;
     }
 
     await cafesdk.result.setTableHeader(RESULT_TABLE_HEADERS);
 
-    await cafesdk.log.info(`Starting RAG Web Browser with query: ${inputData.query}`);
+    await safeLog(cafesdk.log, 'info', `Starting RAG Web Browser with query: ${inputData.query}`);
 
     const results = await runRAGWebBrowser(inputData, cafesdk);
 
@@ -71,7 +82,7 @@ async function run() {
         });
       }
     } else {
-      await cafesdk.log.warn('No results found');
+      await safeLog(cafesdk.log, 'warn', 'No results found');
       await cafesdk.result.pushData({
         query: inputData.query,
         status: 'no_results',
@@ -79,11 +90,15 @@ async function run() {
       });
     }
 
-    await cafesdk.log.info(`Completed with ${Array.isArray(results) ? results.length : 0} results`);
+    await safeLog(cafesdk.log, 'info', `Completed with ${Array.isArray(results) ? results.length : 0} results`);
   } catch (err) {
-    await cafesdk.log.error(`Execution error: ${err.message}`);
-    await cafesdk.result.pushData({ error: err.message, status: 'failed' });
-    throw err;
+    await safeLog(cafesdk.log, 'error', `Execution error: ${err.message}`);
+    try {
+      await cafesdk.result.setTableHeader(RESULT_TABLE_HEADERS);
+      await cafesdk.result.pushData({ error: err.message, status: 'failed' });
+    } catch (pushError) {
+      console.error('Failed to push error data:', pushError);
+    }
   }
 }
 

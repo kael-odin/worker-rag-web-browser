@@ -17,11 +17,23 @@ turndownService.use(gfm);
 
 const DEFAULT_REMOVE_ELEMENTS = "nav, footer, script, style, noscript, svg, img[src^='data:'],\n[role=\"alert\"],\n[role=\"banner\"],\n[role=\"dialog\"],\n[role=\"alertdialog\"],\n[role=\"region\"][aria-label*=\"skip\" i],\n[aria-modal=\"true\"]";
 
+const noop = async () => {};
+
 function getLogger(cafesdk) {
   if (cafesdk && cafesdk.log) {
-    return cafesdk.log;
+    return {
+      debug: cafesdk.log.debug || noop,
+      info: cafesdk.log.info || noop,
+      warn: cafesdk.log.warn || noop,
+      error: cafesdk.log.error || noop,
+    };
   }
-  return console;
+  return {
+    debug: console.log,
+    info: console.log,
+    warn: console.warn,
+    error: console.error,
+  };
 }
 
 const COOKIE_WARNING_SELECTORS = [
@@ -149,7 +161,7 @@ function createOutputItem(url, data, settings) {
   return result;
 }
 
-async function fetchUrl(url, timeout = 30000, log = console) {
+async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error: console.error }) {
   return new Promise((resolve, reject) => {
     const proxyAuth = process.env.PROXY_AUTH;
     const proxyHost = 'proxy-inner.cafescraper.com';
@@ -160,11 +172,43 @@ async function fetchUrl(url, timeout = 30000, log = console) {
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.5',
+      'Accept-Encoding': 'gzip, deflate',
+      Connection: 'keep-alive',
     };
 
     const timeoutId = setTimeout(() => {
       reject(new Error(`Request timeout after ${timeout}ms`));
     }, timeout);
+
+    const handleResponse = (response) => {
+      clearTimeout(timeoutId);
+      let data = '';
+      const chunks = [];
+      
+      response.on('data', (chunk) => {
+        chunks.push(chunk);
+      });
+      
+      response.on('end', () => {
+        try {
+          const buffer = Buffer.concat(chunks);
+          if (response.headers['content-encoding'] === 'gzip') {
+            const zlib = require('zlib');
+            data = zlib.gunzipSync(buffer).toString('utf8');
+          } else {
+            data = buffer.toString('utf8');
+          }
+        } catch (e) {
+          data = chunks.join('');
+        }
+        resolve({ html: data, statusCode: response.statusCode, statusMessage: response.statusMessage || '' });
+      });
+    };
+
+    const handleError = (err) => {
+      clearTimeout(timeoutId);
+      reject(err);
+    };
 
     if (proxyAuth) {
       const req = http.request(
@@ -197,31 +241,13 @@ async function fetchUrl(url, timeout = 30000, log = console) {
             socket: res.socket,
           };
 
-          const request = protocol.request(requestOptions, (response) => {
-            clearTimeout(timeoutId);
-            let data = '';
-            response.on('data', (chunk) => {
-              data += chunk;
-            });
-            response.on('end', () => {
-              resolve({ html: data, statusCode: response.statusCode, statusMessage: response.statusMessage });
-            });
-          });
-
-          request.on('error', (err) => {
-            clearTimeout(timeoutId);
-            reject(err);
-          });
-
+          const request = protocol.request(requestOptions, handleResponse);
+          request.on('error', handleError);
           request.end();
         }
       );
 
-      req.on('error', (err) => {
-        clearTimeout(timeoutId);
-        reject(err);
-      });
-
+      req.on('error', handleError);
       req.end();
     } else {
       if (log.warn) {
@@ -232,21 +258,14 @@ async function fetchUrl(url, timeout = 30000, log = console) {
         url,
         {
           headers: requestHeaders,
+          timeout: timeout,
         },
-        (response) => {
-          clearTimeout(timeoutId);
-          let data = '';
-          response.on('data', (chunk) => {
-            data += chunk;
-          });
-          response.on('end', () => {
-            resolve({ html: data, statusCode: response.statusCode, statusMessage: response.statusMessage });
-          });
-        }
+        handleResponse
       );
-      req.on('error', (err) => {
-        clearTimeout(timeoutId);
-        reject(err);
+      req.on('error', handleError);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
       });
     }
   });
@@ -257,7 +276,7 @@ async function runGoogleSearch(query, maxResults, serpMaxRetries, log) {
     await log.info(`Running Google Search for: ${query}`);
   }
 
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`;
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults * 3}`;
   const retries = Math.max(0, serpMaxRetries || 0);
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -268,19 +287,44 @@ async function runGoogleSearch(query, maxResults, serpMaxRetries, log) {
         await log.warn(`Google search returned status ${statusCode}`);
       }
 
+      if (!html || html.length < 100) {
+        if (log.warn) {
+          await log.warn(`Google search returned empty or very short response (${html?.length || 0} chars), attempt ${attempt + 1}`);
+        }
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        return [];
+      }
+
       const $ = load(html);
+      
+      if ($('#captcha').length > 0 || $('form[action*="verify"]').length > 0) {
+        if (log.error) {
+          await log.error('Google presented CAPTCHA, search failed');
+        }
+        return [];
+      }
+
       const organicResults = scrapeGoogleResults($);
       if (log.info) {
         await log.info(`Found ${organicResults.length} organic results`);
       }
 
-      return organicResults.slice(0, maxResults);
+      if (organicResults.length > 0) {
+        return organicResults.slice(0, maxResults);
+      }
+
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
     } catch (err) {
-      if (attempt === retries) {
-        if (log.error) {
-          await log.error(`Google search failed: ${err.message}`);
-        }
-        return [];
+      if (log.error) {
+        await log.error(`Google search attempt ${attempt + 1} failed: ${err.message}`);
+      }
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
   }
@@ -588,9 +632,15 @@ async function runRAGWebBrowser(inputData, cafesdk) {
     await log.info(`Direct URL provided: ${query}`);
     urlsToScrape = [query];
   } else if (query) {
-    searchResults = await runGoogleSearch(query, maxResults, serpMaxRetries, log);
-    urlsToScrape = searchResults.map((r) => r.url).filter(Boolean);
-    await log.info(`Found ${urlsToScrape.length} URLs to scrape`);
+    try {
+      searchResults = await runGoogleSearch(query, maxResults, serpMaxRetries, log);
+      urlsToScrape = searchResults.map((r) => r.url).filter(Boolean);
+      await log.info(`Found ${urlsToScrape.length} URLs to scrape`);
+    } catch (err) {
+      await log.error(`Search failed: ${err.message}`);
+      await log.warn('Falling back to direct URL scraping (no search results)');
+      urlsToScrape = [];
+    }
   } else {
     await log.error('No query or URL provided');
     return [];
