@@ -1,17 +1,16 @@
 {
   "description": "RAG Web Browser Worker - Search Google and extract web page content for LLM processing. Enter a search query or a URL of a specific web page to scrape",
   "b": "query",
-  "properties": {
-    "query": {
+  "properties": [
+    {
       "title": "Search term or URL",
       "name": "query",
       "type": "string",
       "editor": "textfield",
       "description": "Enter Google Search keywords or a URL of a specific web page to scrape",
-      "default": "web browser for RAG pipelines -site:reddit.com",
-      "required": true
+      "default": "web browser for RAG pipelines -site:reddit.com"
     },
-    "maxResults": {
+    {
       "title": "Maximum results",
       "name": "maxResults",
       "type": "integer",
@@ -19,7 +18,7 @@
       "description": "The maximum number of top organic Google Search results whose web pages will be extracted. If query is a URL, this field is ignored.",
       "default": 3
     },
-    "outputFormats": {
+    {
       "title": "Output formats",
       "name": "outputFormats",
       "type": "array",
@@ -32,7 +31,7 @@
         { "label": "HTML", "value": "html" }
       ]
     },
-    "requestTimeoutSecs": {
+    {
       "title": "Request timeout",
       "name": "requestTimeoutSecs",
       "type": "integer",
@@ -40,7 +39,7 @@
       "description": "The maximum time in seconds available for the request, including querying Google Search and scraping the target web pages.",
       "default": 40
     },
-    "serpMaxRetries": {
+    {
       "title": "SERP max retries",
       "name": "serpMaxRetries",
       "type": "integer",
@@ -48,7 +47,7 @@
       "description": "The maximum number of times the worker will retry fetching Google Search results on error.",
       "default": 2
     },
-    "scrapingTool": {
+    {
       "title": "Select a scraping tool",
       "name": "scrapingTool",
       "type": "string",
@@ -60,7 +59,7 @@
         { "label": "Raw HTTP", "value": "raw-http" }
       ]
     },
-    "maxRequestRetries": {
+    {
       "title": "Target page max retries",
       "name": "maxRequestRetries",
       "type": "integer",
@@ -68,7 +67,7 @@
       "description": "The maximum number of times the worker will retry loading the target web page on error.",
       "default": 1
     },
-    "dynamicContentWaitSecs": {
+    {
       "title": "Target page dynamic content timeout",
       "name": "dynamicContentWaitSecs",
       "type": "integer",
@@ -76,7 +75,7 @@
       "description": "The maximum time in seconds to wait for dynamic page content to load.",
       "default": 10
     },
-    "removeCookieWarnings": {
+    {
       "title": "Remove cookie warnings",
       "name": "removeCookieWarnings",
       "type": "boolean",
@@ -84,7 +83,7 @@
       "description": "If enabled, the worker attempts to close or remove cookie consent dialogs to improve the quality of extracted text.",
       "default": true
     },
-    "htmlTransformer": {
+    {
       "title": "HTML transformer",
       "name": "htmlTransformer",
       "type": "string",
@@ -96,7 +95,7 @@
         { "label": "Readable text", "value": "readableText" }
       ]
     },
-    "readableTextCharThreshold": {
+    {
       "title": "Readable text character threshold",
       "name": "readableTextCharThreshold",
       "type": "integer",
@@ -104,7 +103,7 @@
       "description": "If readable text is shorter than this value, the worker falls back to the cleaned HTML.",
       "default": 0
     },
-    "removeElementsCssSelector": {
+    {
       "title": "Remove HTML elements (CSS selector)",
       "name": "removeElementsCssSelector",
       "type": "string",
@@ -112,7 +111,7 @@
       "description": "A CSS selector matching HTML elements that will be removed from the DOM before converting to text or Markdown.",
       "default": "nav, footer, script, style, noscript, svg, img[src^='data:'],\n[role=\"alert\"],\n[role=\"banner\"],\n[role=\"dialog\"],\n[role=\"alertdialog\"],\n[role=\"region\"][aria-label*=\"skip\" i],\n[aria-modal=\"true\"]"
     },
-    "debugMode": {
+    {
       "title": "Enable debug mode",
       "name": "debugMode",
       "type": "boolean",
@@ -120,5 +119,5 @@
       "description": "If enabled, the worker emits debug logs.",
       "default": false
     }
-  }
+  ]
 }
