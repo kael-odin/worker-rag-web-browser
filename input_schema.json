@@ -1,72 +1,17 @@
 {
-  "description": "RAG Web Browser - A powerful web scraping tool that extracts content from websites and converts it to structured formats like Markdown.",
+  "description": "RAG Web Browser - Web scraping tool for RAG pipelines.",
   "b": "query",
   "properties": [
     {
-      "title": "Search term or URL",
+      "title": "Query",
       "name": "query",
       "type": "array",
-      "editor": "stringList",
-      "description": "Enter Google Search keywords or a URL of a specific web page.",
-      "default": ["https://example.com"],
+      "editor": "requestList",
+      "description": "Search keywords or URL",
+      "default": [
+        { "url": "https://example.com" }
+      ],
       "required": true
-    },
-    {
-      "title": "Max Results",
-      "name": "maxResults",
-      "type": "integer",
-      "editor": "number",
-      "description": "Maximum number of results to return from the search.",
-      "default": 3
-    },
-    {
-      "title": "Output Format",
-      "name": "outputFormat",
-      "type": "string",
-      "editor": "select",
-      "description": "The format of the output content.",
-      "default": "markdown",
-      "allowedValues": [
-        { "value": "markdown", "label": "Markdown" },
-        { "value": "text", "label": "Plain Text" },
-        { "value": "html", "label": "HTML" }
-      ]
-    },
-    {
-      "title": "Scraping Tool",
-      "name": "scrapingTool",
-      "type": "string",
-      "editor": "select",
-      "description": "The tool to use for scraping web content.",
-      "default": "raw-http",
-      "allowedValues": [
-        { "value": "raw-http", "label": "Raw HTTP (Fast)" },
-        { "value": "browser-playwright", "label": "Browser (Playwright)" }
-      ]
-    },
-    {
-      "title": "Request Timeout (seconds)",
-      "name": "requestTimeoutSecs",
-      "type": "integer",
-      "editor": "number",
-      "description": "Maximum time in seconds to wait for a request to complete.",
-      "default": 40
-    },
-    {
-      "title": "Remove Cookie Warnings",
-      "name": "removeCookieWarnings",
-      "type": "boolean",
-      "editor": "switch",
-      "description": "Automatically remove cookie warning banners from pages.",
-      "default": true
-    },
-    {
-      "title": "Debug Mode",
-      "name": "debugMode",
-      "type": "boolean",
-      "editor": "switch",
-      "description": "Enable debug logging for troubleshooting.",
-      "default": false
     }
   ]
 }
