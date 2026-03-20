@@ -17,6 +17,8 @@ async function run() {
         
         // Remove backticks if present
         query = query.replace(/`/g, '').trim()
+        
+        await cafesdk.log.debug(`Cleaned query: ${query}`)
 
         const maxResults = inputJson?.maxResults || 3
         const outputFormat = inputJson?.outputFormat || 'markdown'
