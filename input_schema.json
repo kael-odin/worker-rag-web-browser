@@ -10,7 +10,7 @@
       "description": "Enter Google Search keywords or a URL to scrape",
       "default": [
         {
-          "url": "web browser for RAG pipelines -site:reddit.com"
+          "url": "web browser for RAG pipelines"
         }
       ],
       "required": true
@@ -55,22 +55,6 @@
       "editor": "number",
       "description": "Maximum time for the request",
       "default": 40
-    },
-    {
-      "title": "Remove cookie warnings",
-      "name": "removeCookieWarnings",
-      "type": "boolean",
-      "editor": "switch",
-      "description": "Remove cookie consent dialogs",
-      "default": true
-    },
-    {
-      "title": "Enable debug mode",
-      "name": "debugMode",
-      "type": "boolean",
-      "editor": "switch",
-      "description": "Enable debug logging",
-      "default": false
     }
   ]
 }
