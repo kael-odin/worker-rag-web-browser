@@ -18,7 +18,6 @@ const _logClient = new services.LogClient(
     grpc.credentials.createInsecure()
 );
 
-// 通用 gRPC 响应处理函数
 function handleGrpcResponse(err, response, resolve, reject) {
   if (err) {
     console.error('gRPC call failed:', err);
@@ -73,22 +72,18 @@ exports.parameter = {
 exports.result = {
   setTableHeader: function (headers) {
     return new Promise((resolve, reject) => {
-      // 创建 TableHeader 消息对象
       const tableHeaders = new messages.TableHeader();
 
       const headersList = headers.map(header => {
-        // 使用 TableHeaderItem 来创建实例
-        const headerMessage = new messages.TableHeaderItem(); // 修改为 TableHeaderItem
-        headerMessage.setLabel(header.label);   // 设置 label
-        headerMessage.setKey(header.key);       // 设置 key
-        headerMessage.setFormat(header.format); // 设置 format
-        return headerMessage;  // 返回这个消息对象
+        const headerMessage = new messages.TableHeaderItem();
+        headerMessage.setLabel(header.label);
+        headerMessage.setKey(header.key);
+        headerMessage.setFormat(header.format);
+        return headerMessage;
       });
 
-      // 设置 headers list
       tableHeaders.setHeadersList(headersList);
 
-      // 调用 gRPC 方法
       _resultClient.setTableHeader(tableHeaders, (err, response) => {
         handleGrpcResponse(err, response, resolve, reject);
       });

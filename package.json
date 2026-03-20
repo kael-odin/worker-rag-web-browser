@@ -4,15 +4,12 @@
   "description": "CafeScraper Worker: RAG Web Browser - Google Search and web content extraction for LLM",
   "main": "main.js",
   "scripts": {
-    "start": "node main.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "dependencies": {
     "@grpc/grpc-js": "^1.13.4",
     "google-protobuf": "^4.0.0",
