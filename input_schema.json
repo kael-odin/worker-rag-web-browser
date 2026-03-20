@@ -6,9 +6,10 @@
       "title": "Search term or URL",
       "name": "query",
       "type": "string",
-      "editor": "textfield",
+      "editor": "input",
       "description": "Enter Google Search keywords or a URL of a specific web page to scrape",
-      "default": "web browser for RAG pipelines -site:reddit.com"
+      "default": "web browser for RAG pipelines -site:reddit.com",
+      "required": true
     },
     {
       "title": "Maximum results",
@@ -22,7 +23,7 @@
       "title": "Output formats",
       "name": "outputFormats",
       "type": "array",
-      "editor": "select",
+      "editor": "checkbox",
       "description": "Select one or more formats to which the target web pages will be extracted.",
       "default": ["markdown"],
       "options": [
@@ -32,7 +33,7 @@
       ]
     },
     {
-      "title": "Request timeout",
+      "title": "Request timeout (seconds)",
       "name": "requestTimeoutSecs",
       "type": "integer",
       "editor": "number",
@@ -55,8 +56,8 @@
       "description": "Select a scraping tool for extracting the target web pages.",
       "default": "raw-http",
       "options": [
-        { "label": "Browser (uses Playwright)", "value": "browser-playwright" },
-        { "label": "Raw HTTP", "value": "raw-http" }
+        { "label": "Raw HTTP (faster)", "value": "raw-http" },
+        { "label": "Browser (uses Playwright)", "value": "browser-playwright" }
       ]
     },
     {
@@ -68,7 +69,7 @@
       "default": 1
     },
     {
-      "title": "Target page dynamic content timeout",
+      "title": "Dynamic content wait (seconds)",
       "name": "dynamicContentWaitSecs",
       "type": "integer",
       "editor": "number",
