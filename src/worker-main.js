@@ -22,10 +22,10 @@ const noop = async () => {};
 function getLogger(cafesdk) {
   if (cafesdk && cafesdk.log) {
     return {
-      debug: cafesdk.log.debug || noop,
-      info: cafesdk.log.info || noop,
-      warn: cafesdk.log.warn || noop,
-      error: cafesdk.log.error || noop,
+      debug: (msg) => cafesdk.log.debug(msg),
+      info: (msg) => cafesdk.log.info(msg),
+      warn: (msg) => cafesdk.log.warn(msg),
+      error: (msg) => cafesdk.log.error(msg),
     };
   }
   return {

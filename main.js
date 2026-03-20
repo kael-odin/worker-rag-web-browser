@@ -14,6 +14,9 @@ async function run() {
         } else if (typeof inputJson?.url === 'string') {
             query = inputJson.url.trim()
         }
+        
+        // Remove backticks if present
+        query = query.replace(/`/g, '').trim()
 
         const maxResults = inputJson?.maxResults || 3
         const outputFormat = inputJson?.outputFormat || 'markdown'
