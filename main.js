@@ -8,8 +8,13 @@ async function run() {
         const inputJson = await cafesdk.parameter.getInputJSONObject()
         await cafesdk.log.debug(`Input parameters: ${JSON.stringify(inputJson)}`)
 
-        const urlArray = inputJson?.url || []
-        const query = urlArray[0]?.url || ''
+        let query = ''
+        if (Array.isArray(inputJson?.url)) {
+            query = inputJson.url[0]?.url || inputJson.url[0] || ''
+        } else if (typeof inputJson?.url === 'string') {
+            query = inputJson.url.trim()
+        }
+
         const maxResults = inputJson?.maxResults || 3
         const outputFormat = inputJson?.outputFormat || 'markdown'
         const scrapingTool = inputJson?.scrapingTool || 'raw-http'
