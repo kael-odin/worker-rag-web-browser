@@ -1,60 +1,81 @@
 {
-  "description": "RAG Web Browser Worker - Search Google and extract web page content for LLM processing. Enter a search query or a URL to scrape",
+  "description": "RAG Web Browser - A powerful web scraping tool that extracts content from websites and converts it to structured formats like Markdown. It supports multiple scraping tools, configurable timeouts, and various output formats for RAG (Retrieval-Augmented Generation) applications.",
   "b": "query",
   "properties": [
     {
-      "title": "Search query or URL",
+      "title": "Query URL",
       "name": "query",
       "type": "array",
       "editor": "requestList",
-      "description": "Enter Google Search keywords or a URL to scrape",
+      "description": "The search query or URL to scrape. Enter one URL per line.",
       "default": [
-        {
-          "url": "web browser for RAG pipelines"
-        }
+        { "url": "https://example.com" }
       ],
       "required": true
     },
     {
-      "title": "Maximum results",
+      "title": "Max Results",
       "name": "maxResults",
       "type": "integer",
       "editor": "number",
-      "description": "Maximum number of search results",
-      "default": 3
+      "description": "Maximum number of results to return from the search.",
+      "default": 3,
+      "required": false
     },
     {
-      "title": "Output format",
+      "title": "Output Format",
       "name": "outputFormat",
       "type": "string",
       "editor": "select",
-      "description": "Output format for extracted content",
+      "description": "The format of the output content.",
       "default": "markdown",
-      "options": [
-        { "label": "Markdown", "value": "markdown" },
-        { "label": "Plain text", "value": "text" },
-        { "label": "HTML", "value": "html" }
+      "required": false,
+      "allowedValues": [
+        { "value": "markdown", "label": "Markdown" },
+        { "value": "text", "label": "Plain Text" },
+        { "value": "html", "label": "HTML" }
       ]
     },
     {
-      "title": "Scraping tool",
+      "title": "Scraping Tool",
       "name": "scrapingTool",
       "type": "string",
       "editor": "select",
-      "description": "Choose scraping method",
+      "description": "The tool to use for scraping web content.",
       "default": "raw-http",
-      "options": [
-        { "label": "Raw HTTP (faster)", "value": "raw-http" },
-        { "label": "Browser (Playwright)", "value": "browser-playwright" }
+      "required": false,
+      "allowedValues": [
+        { "value": "raw-http", "label": "Raw HTTP (Fast)" },
+        { "value": "browser", "label": "Browser (JavaScript)" },
+        { "value": "playwright", "label": "Playwright" }
       ]
     },
     {
-      "title": "Request timeout (seconds)",
+      "title": "Request Timeout (seconds)",
       "name": "requestTimeoutSecs",
       "type": "integer",
       "editor": "number",
-      "description": "Maximum time for the request",
-      "default": 40
+      "description": "Maximum time in seconds to wait for a request to complete.",
+      "default": 40,
+      "required": false
+    },
+    {
+      "title": "Remove Cookie Warnings",
+      "name": "removeCookieWarnings",
+      "type": "boolean",
+      "editor": "switch",
+      "description": "Automatically remove cookie warning banners from pages.",
+      "default": true,
+      "required": false
+    },
+    {
+      "title": "Debug Mode",
+      "name": "debugMode",
+      "type": "boolean",
+      "editor": "switch",
+      "description": "Enable debug logging for troubleshooting.",
+      "default": false,
+      "required": false
     }
   ]
 }
