@@ -18,6 +18,7 @@ const _logClient = new services.LogClient(
     grpc.credentials.createInsecure()
 );
 
+// 通用 gRPC 响应处理函数
 function handleGrpcResponse(err, response, resolve, reject) {
   if (err) {
     console.error('gRPC call failed:', err);
@@ -36,7 +37,7 @@ function handleGrpcResponse(err, response, resolve, reject) {
   resolve(result);
 }
 
-const parameter = {
+exports.parameter = {
   getInputJSONString: function () {
     return new Promise((resolve, reject) => {
       _parameterClient.getInputJSONString(new Empty(), (err, response) => {
@@ -48,7 +49,7 @@ const parameter = {
         const result = {
           code: response.getCode(),
           jsonString: response.getJsonstring()
-        };
+        }
         if (result.code !== 0) {
           console.error('getInputJSONString code:', result.code);
           reject(new Error(`Code: ${result.code}`));
@@ -69,18 +70,25 @@ const parameter = {
   }
 };
 
-const result = {
+exports.result = {
   setTableHeader: function (headers) {
     return new Promise((resolve, reject) => {
+      // 创建 TableHeader 消息对象
       const tableHeaders = new messages.TableHeader();
+
       const headersList = headers.map(header => {
-        const headerMessage = new messages.TableHeaderItem();
-        headerMessage.setLabel(header.label);
-        headerMessage.setKey(header.key);
-        headerMessage.setFormat(header.format);
-        return headerMessage;
+        // 使用 TableHeaderItem 来创建实例
+        const headerMessage = new messages.TableHeaderItem(); // 修改为 TableHeaderItem
+        headerMessage.setLabel(header.label);   // 设置 label
+        headerMessage.setKey(header.key);       // 设置 key
+        headerMessage.setFormat(header.format); // 设置 format
+        return headerMessage;  // 返回这个消息对象
       });
+
+      // 设置 headers list
       tableHeaders.setHeadersList(headersList);
+
+      // 调用 gRPC 方法
       _resultClient.setTableHeader(tableHeaders, (err, response) => {
         handleGrpcResponse(err, response, resolve, reject);
       });
@@ -107,7 +115,7 @@ const result = {
   }
 };
 
-const log = {
+exports.log = {
   logMessage: function (level, logString) {
     return new Promise((resolve, reject) => {
       const logBody = new messages.LogBody();
@@ -118,16 +126,16 @@ const log = {
           reject(err);
           return;
         }
-        const res = {
+        const result = {
           code: response.getCode(),
           message: response.getMessage()
         };
-        if (res.code !== 0) {
-          console.error(`log.${level} code:`, res.code);
-          reject(new Error(res.message));
+        if (result.code !== 0) {
+          console.error(`log.${level} code:`, result.code);
+          reject(new Error(result.message));
           return;
         }
-        resolve(res);
+        resolve(result);
       });
     });
   },
@@ -147,10 +155,4 @@ const log = {
   error: function (logString) {
     return this.logMessage('error', logString);
   }
-};
-
-module.exports = {
-  parameter,
-  result,
-  log
 };
