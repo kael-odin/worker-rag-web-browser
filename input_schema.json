@@ -5,10 +5,12 @@
     {
       "title": "Search term or URL",
       "name": "query",
-      "type": "string",
-      "editor": "textarea",
-      "description": "Enter Google Search keywords or a URL of a specific web page. Examples: 'san francisco weather' or 'https://www.cnn.com'",
-      "default": "https://example.com",
+      "type": "array",
+      "editor": "requestList",
+      "description": "Enter Google Search keywords or a URL of a specific web page.",
+      "default": [
+        { "url": "https://example.com" }
+      ],
       "required": true
     },
     {
