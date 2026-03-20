@@ -15,8 +15,8 @@ async function run() {
             query = inputJson.url.trim()
         }
         
-        // Remove backticks if present
-        query = query.replace(/`/g, '').trim()
+        // Remove backticks if present (using char code for reliability)
+        query = query.split('').filter(c => c.charCodeAt(0) !== 96).join('').trim()
         
         await cafesdk.log.debug(`Cleaned query: ${query}`)
 
