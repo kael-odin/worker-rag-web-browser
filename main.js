@@ -28,27 +28,9 @@ async function run() {
         }
 
         await cafesdk.log.info(`Starting RAG Web Browser with query: ${query}`)
-
-        const proxyDomain = 'proxy-inner.cafescraper.com:6000'
-        let proxyAuth = null
-        try {
-            proxyAuth = process.env.PROXY_AUTH || null
-            if (proxyAuth) {
-                await cafesdk.log.info('Proxy auth configured')
-            }
-        } catch (err) {
-            await cafesdk.log.warn('No proxy auth available')
-        }
-
-        const proxyUrl = proxyAuth
-            ? `socks5://${proxyAuth}@${proxyDomain}`
-            : null
+        await cafesdk.log.info(`Max results: ${maxResults}, Output format: ${outputFormat}`)
 
         const { runRAGWebBrowser } = require('./src/worker-main.js')
-
-        if (debugMode) {
-            await cafesdk.log.debug(`Config: maxResults=${maxResults}, outputFormat=${outputFormat}, scrapingTool=${scrapingTool}`)
-        }
 
         const results = await runRAGWebBrowser({
             query,
@@ -58,7 +40,6 @@ async function run() {
             scrapingTool,
             requestTimeoutSecs,
             removeCookieWarnings,
-            proxyUrl,
         }, cafesdk)
 
         const headers = [
@@ -66,7 +47,6 @@ async function run() {
             { label: 'URL', key: 'url', format: 'text' },
             { label: 'Title', key: 'title', format: 'text' },
             { label: 'Description', key: 'description', format: 'text' },
-            { label: 'Content', key: 'content', format: 'text' },
             { label: 'Markdown', key: 'markdown', format: 'text' },
             { label: 'Status Code', key: 'status_code', format: 'integer' },
             { label: 'Error', key: 'error', format: 'text' },
@@ -81,7 +61,6 @@ async function run() {
                     url: item.url || item.metadata?.url || '',
                     title: item.title || item.metadata?.title || '',
                     description: item.description || item.metadata?.description || '',
-                    content: item.text || '',
                     markdown: item.markdown || '',
                     status_code: item.crawl?.httpStatusCode || 200,
                     error: item.error || '',
@@ -107,7 +86,6 @@ async function run() {
         }
 
         await cafesdk.result.pushData(errorResult)
-        throw err
     }
 }
 
