@@ -553,11 +553,12 @@ function validateInput(input) {
   validated.maxResults = Math.min(100, Math.max(1, validated.maxResults || 3));
   validated.requestTimeoutSecs = Math.min(300, Math.max(1, validated.requestTimeoutSecs || 40));
 
-  if (!validated.outputFormats || validated.outputFormats.length === 0) {
-    validated.outputFormats = ['markdown'];
-  } else if (validated.outputFormats.some((format) => !['text', 'markdown', 'html'].includes(format))) {
-    throw new Error('The `outputFormats` array may only contain `text`, `markdown`, or `html`.');
+  validated.outputFormat = validated.outputFormat || 'markdown';
+  if (!['text', 'markdown', 'html'].includes(validated.outputFormat)) {
+    throw new Error('The `outputFormat` parameter must be either `text`, `markdown`, or `html`.');
   }
+
+  validated.outputFormats = [validated.outputFormat];
 
   if (!validated.scrapingTool) {
     validated.scrapingTool = 'raw-http';

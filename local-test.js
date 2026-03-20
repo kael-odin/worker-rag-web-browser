@@ -10,7 +10,7 @@ const mockCafeSDK = {
     getInputJSONObject: async () => ({
       query: 'https://github.com/microsoft/vscode',
       maxResults: 1,
-      outputFormats: ['markdown'],
+      outputFormat: 'markdown',
       scrapingTool: 'raw-http',
       requestTimeoutSecs: 30,
     }),
@@ -45,7 +45,7 @@ async function test() {
       {
         query: 'https://github.com/microsoft/vscode',
         maxResults: 1,
-        outputFormats: ['markdown'],
+        outputFormat: 'markdown',
         scrapingTool: 'raw-http',
         requestTimeoutSecs: 30,
       },

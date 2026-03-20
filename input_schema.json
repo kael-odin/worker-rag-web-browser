@@ -20,12 +20,12 @@
       "default": 3
     },
     {
-      "title": "Output formats",
-      "name": "outputFormats",
-      "type": "array",
+      "title": "Output format",
+      "name": "outputFormat",
+      "type": "string",
       "editor": "select",
       "description": "Select output format for extracted content",
-      "default": ["markdown"],
+      "default": "markdown",
       "options": [
         { "label": "Markdown", "value": "markdown" },
         { "label": "Plain text", "value": "text" },

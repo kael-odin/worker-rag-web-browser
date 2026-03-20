@@ -18,7 +18,7 @@ const RESULT_TABLE_HEADERS = [
 const DEFAULT_INPUT = {
   query: '',
   maxResults: 3,
-  outputFormats: ['markdown'],
+  outputFormat: 'markdown',
   requestTimeoutSecs: 40,
   scrapingTool: 'raw-http',
   serpMaxRetries: 2,

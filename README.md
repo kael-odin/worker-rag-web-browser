@@ -41,14 +41,18 @@ npm start
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `query` | string | - | Search query or direct URL to scrape |
+| `query` | string | - | Search query or direct URL to scrape (required) |
 | `maxResults` | number | 3 | Maximum number of search results (1-100) |
-| `outputFormats` | array | `["markdown"]` | Output formats: `text`, `markdown`, `html` |
+| `outputFormat` | string | `"markdown"` | Output format: `text`, `markdown`, or `html` |
 | `scrapingTool` | string | `"raw-http"` | Scraping mode: `raw-http` or `browser-playwright` |
 | `requestTimeoutSecs` | number | 40 | Request timeout in seconds (1-300) |
-| `dynamicContentWaitSecs` | number | 20 | Wait time for dynamic content |
+| `serpMaxRetries` | number | 2 | Maximum retries for Google Search |
+| `maxRequestRetries` | number | 1 | Maximum retries for target page |
+| `dynamicContentWaitSecs` | number | 10 | Wait time for dynamic content |
 | `removeCookieWarnings` | boolean | true | Remove cookie warning popups |
+| `htmlTransformer` | string | `"none"` | HTML transformation: `none` or `readableText` |
 | `removeElementsCssSelector` | string | - | CSS selector for elements to remove |
+| `debugMode` | boolean | false | Enable debug logging |
 
 ## Output Format
 
@@ -100,13 +104,10 @@ worker-rag-web-browser/
 ├── sdk_pb.js              # Protocol buffer definitions
 ├── sdk_grpc_pb.js         # gRPC service definitions
 ├── input_schema.json      # Input schema for CafeScraper
+├── local-test.js          # Local test script
 └── package.json
 ```
 
 ## License
 
 ISC
-
-## Author
-
-CafeScraper
