@@ -19,8 +19,7 @@
       "type": "integer",
       "editor": "number",
       "description": "Maximum number of results to return from the search.",
-      "default": 3,
-      "required": false
+      "default": 3
     },
     {
       "title": "Output Format",
@@ -29,7 +28,6 @@
       "editor": "select",
       "description": "The format of the output content.",
       "default": "markdown",
-      "required": false,
       "allowedValues": [
         { "value": "markdown", "label": "Markdown" },
         { "value": "text", "label": "Plain Text" },
@@ -43,11 +41,9 @@
       "editor": "select",
       "description": "The tool to use for scraping web content.",
       "default": "raw-http",
-      "required": false,
       "allowedValues": [
         { "value": "raw-http", "label": "Raw HTTP (Fast)" },
-        { "value": "browser", "label": "Browser (JavaScript)" },
-        { "value": "playwright", "label": "Playwright" }
+        { "value": "browser-playwright", "label": "Browser (Playwright)" }
       ]
     },
     {
@@ -56,8 +52,7 @@
       "type": "integer",
       "editor": "number",
       "description": "Maximum time in seconds to wait for a request to complete.",
-      "default": 40,
-      "required": false
+      "default": 40
     },
     {
       "title": "Remove Cookie Warnings",
@@ -65,8 +60,7 @@
       "type": "boolean",
       "editor": "switch",
       "description": "Automatically remove cookie warning banners from pages.",
-      "default": true,
-      "required": false
+      "default": true
     },
     {
       "title": "Debug Mode",
@@ -74,8 +68,7 @@
       "type": "boolean",
       "editor": "switch",
       "description": "Enable debug logging for troubleshooting.",
-      "default": false,
-      "required": false
+      "default": false
     }
   ]
 }
