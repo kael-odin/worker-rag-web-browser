@@ -16,19 +16,19 @@
       "name": "maxResults",
       "type": "integer",
       "editor": "number",
-      "description": "The maximum number of top organic Google Search results whose web pages will be extracted. If query is a URL, this field is ignored.",
+      "description": "The maximum number of top organic Google Search results",
       "default": 3
     },
     {
       "title": "Output formats",
       "name": "outputFormats",
       "type": "array",
-      "editor": "checkbox",
-      "description": "Select one or more formats to which the target web pages will be extracted.",
+      "editor": "select",
+      "description": "Select output format for extracted content",
       "default": ["markdown"],
       "options": [
-        { "label": "Plain text", "value": "text" },
         { "label": "Markdown", "value": "markdown" },
+        { "label": "Plain text", "value": "text" },
         { "label": "HTML", "value": "html" }
       ]
     },
@@ -37,7 +37,7 @@
       "name": "requestTimeoutSecs",
       "type": "integer",
       "editor": "number",
-      "description": "The maximum time in seconds available for the request, including querying Google Search and scraping the target web pages.",
+      "description": "Maximum time in seconds for the request",
       "default": 40
     },
     {
@@ -45,7 +45,7 @@
       "name": "serpMaxRetries",
       "type": "integer",
       "editor": "number",
-      "description": "The maximum number of times the worker will retry fetching Google Search results on error.",
+      "description": "Maximum retries for Google Search",
       "default": 2
     },
     {
@@ -53,11 +53,11 @@
       "name": "scrapingTool",
       "type": "string",
       "editor": "select",
-      "description": "Select a scraping tool for extracting the target web pages.",
+      "description": "Choose scraping method",
       "default": "raw-http",
       "options": [
         { "label": "Raw HTTP (faster)", "value": "raw-http" },
-        { "label": "Browser (uses Playwright)", "value": "browser-playwright" }
+        { "label": "Browser (Playwright)", "value": "browser-playwright" }
       ]
     },
     {
@@ -65,7 +65,7 @@
       "name": "maxRequestRetries",
       "type": "integer",
       "editor": "number",
-      "description": "The maximum number of times the worker will retry loading the target web page on error.",
+      "description": "Maximum retries for target page",
       "default": 1
     },
     {
@@ -73,7 +73,7 @@
       "name": "dynamicContentWaitSecs",
       "type": "integer",
       "editor": "number",
-      "description": "The maximum time in seconds to wait for dynamic page content to load.",
+      "description": "Wait time for dynamic content",
       "default": 10
     },
     {
@@ -81,7 +81,7 @@
       "name": "removeCookieWarnings",
       "type": "boolean",
       "editor": "switch",
-      "description": "If enabled, the worker attempts to close or remove cookie consent dialogs to improve the quality of extracted text.",
+      "description": "Remove cookie consent dialogs",
       "default": true
     },
     {
@@ -89,7 +89,7 @@
       "name": "htmlTransformer",
       "type": "string",
       "editor": "select",
-      "description": "Specify how to transform the HTML to extract meaningful content.",
+      "description": "How to transform HTML content",
       "default": "none",
       "options": [
         { "label": "None", "value": "none" },
@@ -97,27 +97,19 @@
       ]
     },
     {
-      "title": "Readable text character threshold",
-      "name": "readableTextCharThreshold",
-      "type": "integer",
-      "editor": "number",
-      "description": "If readable text is shorter than this value, the worker falls back to the cleaned HTML.",
-      "default": 0
-    },
-    {
       "title": "Remove HTML elements (CSS selector)",
       "name": "removeElementsCssSelector",
       "type": "string",
       "editor": "textarea",
-      "description": "A CSS selector matching HTML elements that will be removed from the DOM before converting to text or Markdown.",
-      "default": "nav, footer, script, style, noscript, svg, img[src^='data:'],\n[role=\"alert\"],\n[role=\"banner\"],\n[role=\"dialog\"],\n[role=\"alertdialog\"],\n[role=\"region\"][aria-label*=\"skip\" i],\n[aria-modal=\"true\"]"
+      "description": "CSS selector for elements to remove",
+      "default": "nav, footer, script, style, noscript, svg, img[src^='data:'], [role=\"alert\"], [role=\"banner\"], [role=\"dialog\"], [role=\"alertdialog\"], [role=\"region\"][aria-label*=\"skip\" i], [aria-modal=\"true\"]"
     },
     {
       "title": "Enable debug mode",
       "name": "debugMode",
       "type": "boolean",
       "editor": "switch",
-      "description": "If enabled, the worker emits debug logs.",
+      "description": "Enable debug logging",
       "default": false
     }
   ]
