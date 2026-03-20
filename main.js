@@ -8,7 +8,8 @@ async function run() {
         const inputJson = await cafesdk.parameter.getInputJSONObject()
         await cafesdk.log.debug(`Input parameters: ${JSON.stringify(inputJson)}`)
 
-        const query = inputJson?.query || ''
+        const queryArray = inputJson?.query || []
+        const query = queryArray[0]?.url || ''
         const maxResults = inputJson?.maxResults || 3
         const outputFormat = inputJson?.outputFormat || 'markdown'
         const scrapingTool = inputJson?.scrapingTool || 'raw-http'
