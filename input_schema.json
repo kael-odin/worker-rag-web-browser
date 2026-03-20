@@ -1,15 +1,17 @@
 {
-  "description": "RAG Web Browser - Web scraping tool for RAG pipelines.",
-  "b": "query",
+  "description": "RAG Web Browser - Web scraping tool for RAG pipelines. It queries Google Search, scrapes the top N pages, and returns their content as Markdown.",
+  "b": "url",
   "properties": [
     {
-      "title": "Query",
-      "name": "query",
+      "title": "URL",
+      "name": "url",
       "type": "array",
       "editor": "requestList",
-      "description": "Search keywords or URL",
+      "description": "This parameter is used to specify the URL to be fetched.",
       "default": [
-        { "url": "https://example.com" }
+        {
+          "url": "https://example.com"
+        }
       ],
       "required": true
     }
