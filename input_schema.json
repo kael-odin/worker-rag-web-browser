@@ -1,16 +1,14 @@
 {
-  "description": "RAG Web Browser - A powerful web scraping tool that extracts content from websites and converts it to structured formats like Markdown. It supports multiple scraping tools, configurable timeouts, and various output formats for RAG (Retrieval-Augmented Generation) applications.",
+  "description": "RAG Web Browser - A powerful web scraping tool that extracts content from websites and converts it to structured formats like Markdown.",
   "b": "query",
   "properties": [
     {
       "title": "Search term or URL",
       "name": "query",
       "type": "array",
-      "editor": "requestList",
+      "editor": "stringList",
       "description": "Enter Google Search keywords or a URL of a specific web page.",
-      "default": [
-        { "url": "https://example.com" }
-      ],
+      "default": ["https://example.com"],
       "required": true
     },
     {
