@@ -14,11 +14,6 @@ async function run() {
         } else if (typeof inputJson?.url === 'string') {
             query = inputJson.url.trim()
         }
-        
-        // Remove backticks if present (using char code for reliability)
-        query = query.split('').filter(c => c.charCodeAt(0) !== 96).join('').trim()
-        
-        await cafesdk.log.debug(`Cleaned query: ${query}`)
 
         const maxResults = inputJson?.maxResults || 3
         const outputFormat = inputJson?.outputFormat || 'markdown'
