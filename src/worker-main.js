@@ -12,6 +12,9 @@ const { gfm } = require('joplin-turndown-plugin-gfm');
 const { JSDOM } = require('jsdom');
 const { Readability } = require('@mozilla/readability');
 
+// Allow insecure HTTPS connections (required for some proxy environments)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const turndownService = new TurndownService();
 turndownService.use(gfm);
 
