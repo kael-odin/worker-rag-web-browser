@@ -7,7 +7,7 @@
       "name": "url",
       "type": "array",
       "editor": "requestList",
-      "description": "This parameter is used to specify the URL to be fetched.",
+      "description": "Enter a URL or search query. For direct URL scraping, enter the full URL (e.g., https://example.com). For Google search, enter keywords.",
       "default": [
         {
           "url": "https://example.com"
@@ -20,8 +20,10 @@
       "name": "maxResults",
       "type": "integer",
       "editor": "number",
-      "description": "Maximum number of results to return from the search.",
-      "default": 3
+      "description": "Maximum number of search results to return (1-100).",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 100
     },
     {
       "title": "Output Format",
@@ -41,7 +43,7 @@
       "name": "scrapingTool",
       "type": "string",
       "editor": "select",
-      "description": "The tool to use for scraping web content.",
+      "description": "Raw HTTP is fast but cannot handle JavaScript. Browser mode handles dynamic content but is slower.",
       "default": "raw-http",
       "allowedValues": [
         { "value": "raw-http", "label": "Raw HTTP (Fast)" },
@@ -53,8 +55,30 @@
       "name": "requestTimeoutSecs",
       "type": "integer",
       "editor": "number",
-      "description": "Maximum time in seconds to wait for a request to complete.",
-      "default": 40
+      "description": "Maximum time in seconds to wait for a request to complete (1-300).",
+      "default": 40,
+      "minimum": 1,
+      "maximum": 300
+    },
+    {
+      "title": "Max Retries",
+      "name": "maxRequestRetries",
+      "type": "integer",
+      "editor": "number",
+      "description": "Number of retry attempts for failed requests.",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    {
+      "title": "Concurrency",
+      "name": "desiredConcurrency",
+      "type": "integer",
+      "editor": "number",
+      "description": "Number of parallel scraping operations. Higher = faster but more resources.",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 10
     },
     {
       "title": "Remove Cookie Warnings",
@@ -69,18 +93,8 @@
       "name": "debugMode",
       "type": "boolean",
       "editor": "switch",
-      "description": "Enable debug logging for troubleshooting.",
+      "description": "Enable debug logging and performance metrics.",
       "default": false
-    },
-    {
-      "title": "Desired Concurrency",
-      "name": "desiredConcurrency",
-      "type": "integer",
-      "editor": "number",
-      "description": "Number of parallel scraping operations. Higher values are faster but use more resources.",
-      "default": 3,
-      "minimum": 1,
-      "maximum": 10
     }
   ]
 }

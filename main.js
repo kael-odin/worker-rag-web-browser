@@ -8,6 +8,7 @@ async function run() {
         const inputJson = await cafesdk.parameter.getInputJSONObject()
         await cafesdk.log.debug(`Input parameters: ${JSON.stringify(inputJson)}`)
 
+        // Extract query from URL field
         let query = ''
         if (Array.isArray(inputJson?.url)) {
             query = inputJson.url[0]?.url || inputJson.url[0] || ''
@@ -15,10 +16,13 @@ async function run() {
             query = inputJson.url.trim()
         }
 
+        // Parse all input parameters with defaults
         const maxResults = inputJson?.maxResults || 3
         const outputFormat = inputJson?.outputFormat || 'markdown'
         const scrapingTool = inputJson?.scrapingTool || 'raw-http'
         const requestTimeoutSecs = inputJson?.requestTimeoutSecs || 40
+        const maxRequestRetries = inputJson?.maxRequestRetries || 1
+        const desiredConcurrency = inputJson?.desiredConcurrency || 3
         const removeCookieWarnings = inputJson?.removeCookieWarnings !== false
         const debugMode = inputJson?.debugMode === true
 
@@ -28,12 +32,12 @@ async function run() {
                 { label: 'Error', key: 'error', format: 'text' }
             ]
             await cafesdk.result.setTableHeader(headers)
-            await cafesdk.result.pushData({ error: 'Missing query parameter' })
+            await cafesdk.result.pushData({ error: 'Missing query parameter. Please enter a URL or search keywords.' })
             return
         }
 
         await cafesdk.log.info(`Starting RAG Web Browser with query: ${query}`)
-        await cafesdk.log.info(`Max results: ${maxResults}, Output format: ${outputFormat}`)
+        await cafesdk.log.info(`Max results: ${maxResults}, Output format: ${outputFormat}, Scraping tool: ${scrapingTool}`)
 
         const { runRAGWebBrowser } = require('./src/worker-main.js')
 
@@ -44,9 +48,10 @@ async function run() {
             outputFormats: [outputFormat],
             scrapingTool,
             requestTimeoutSecs,
+            maxRequestRetries,
+            desiredConcurrency,
             removeCookieWarnings,
             debugMode,
-            desiredConcurrency: inputJson?.desiredConcurrency || 3,
         }, cafesdk)
 
         const headers = [
