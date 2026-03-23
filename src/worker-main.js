@@ -423,14 +423,33 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
         }
 
         if (isHttps) {
-          // For HTTPS, wrap the socket in TLS
-          const tlsSocket = tls.connect({
+          // For HTTPS, wrap the socket in TLS with timeout
+          const tlsOptions = {
             socket: socket,
             servername: targetUrl.hostname,
             rejectUnauthorized: false,
-          }, () => {
+            // Add ALPN protocols for better compatibility
+            ALPNProtocols: ['http/1.1'],
+            // Enable session reuse
+            session: undefined,
+          };
+
+          if (log.debug) {
+            log.debug(`Starting TLS handshake with ${targetUrl.hostname}`);
+          }
+
+          const tlsSocket = tls.connect(tlsOptions);
+
+          // Set a timeout for TLS handshake
+          const tlsTimeout = setTimeout(() => {
+            tlsSocket.destroy();
+            handleError(new Error('TLS handshake timeout'));
+          }, 10000);
+
+          tlsSocket.on('secureConnect', () => {
+            clearTimeout(tlsTimeout);
             if (log.debug) {
-              log.debug(`TLS handshake successful`);
+              log.debug(`TLS handshake successful, protocol: ${tlsSocket.getProtocol()}, cipher: ${tlsSocket.getCipher().name}`);
             }
 
             const request = https.get({
@@ -438,6 +457,7 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
               port: targetUrl.port || 443,
               path: `${targetUrl.pathname}${targetUrl.search}`,
               headers: requestHeaders,
+              // Use the established TLS socket
               createConnection: () => tlsSocket,
             }, handleResponse);
 
@@ -450,10 +470,15 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
           });
 
           tlsSocket.on('error', (err) => {
+            clearTimeout(tlsTimeout);
             if (log.error) {
               log.error(`TLS error: ${err.message}`);
             }
             handleError(err);
+          });
+
+          tlsSocket.on('close', () => {
+            clearTimeout(tlsTimeout);
           });
         } else {
           // For HTTP, use the socket directly
