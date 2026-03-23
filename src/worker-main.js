@@ -75,60 +75,65 @@ function getLogger(cafesdk) {
   };
 }
 
-const COOKIE_WARNING_SELECTORS = [
-  '[id*="cookie" i]',
-  '[class*="cookie" i]',
-  '[id*="consent" i]',
-  '[class*="consent" i]',
-  '[id*="gdpr" i]',
-  '[class*="gdpr" i]',
-  '[aria-label*="cookie" i]',
-  '[aria-label*="consent" i]',
-  '[data-cookie]',
-  '[data-consent]',
-].join(', ');
-
-function htmlToText(html) {
-  if (!html) return '';
-  const $ = load(html);
-  $('script, style, noscript, nav, footer, header').remove();
-  return $('body').text().replace(/\s+/g, ' ').trim();
-}
-
-function htmlToMarkdown(html) {
-  if (!html) return '';
+function transformHtmlToMarkdown(html, url) {
   try {
-    return turndownService.turndown(html);
+    const dom = new JSDOM(html, { url });
+    const reader = new Readability(dom.window.document);
+    const article = reader.parse();
+
+    if (article && article.content) {
+      const markdown = turndownService.turndown(article.content);
+      return {
+        markdown,
+        title: article.title || '',
+        description: article.excerpt || '',
+        languageCode: article.lang || 'en',
+      };
+    }
   } catch (err) {
-    return '';
+    // Fall through to basic conversion
   }
+
+  const markdown = turndownService.turndown(html);
+  return {
+    markdown,
+    title: '',
+    description: '',
+    languageCode: 'en',
+  };
 }
 
-function readableTextFromHtml(html, url) {
-  if (!html) return '';
-  const dom = new JSDOM(html, { url: url || 'https://example.com' });
-  const reader = new Readability(dom.window.document);
-  const article = reader.parse();
-  return article?.textContent || '';
+function extractTextFromHtml(html) {
+  const $ = load(html);
+  return $('body').text().trim();
 }
 
 function processHtml(html, settings, url) {
-  if (!html) return '';
+  const { removeElementsCssSelector, removeCookieWarnings, htmlTransformer, readableTextCharThreshold } = settings;
+
   let $ = load(html);
 
-  if (settings.removeElementsCssSelector) {
-    $(settings.removeElementsCssSelector).remove();
+  // Remove elements by CSS selector
+  const selectorsToRemove = removeElementsCssSelector || DEFAULT_REMOVE_ELEMENTS;
+  if (selectorsToRemove) {
+    $(selectorsToRemove).remove();
   }
 
-  if (settings.removeCookieWarnings) {
+  // Remove cookie warnings
+  if (removeCookieWarnings) {
     $(COOKIE_WARNING_SELECTORS).remove();
   }
 
-  const bodyHtml = $('body').html() || html;
+  let bodyHtml = $('body').html() || html;
 
-  if (settings.htmlTransformer === 'readableText') {
-    const readableText = readableTextFromHtml(bodyHtml, url);
-    if (settings.readableTextCharThreshold && readableText.length < settings.readableTextCharThreshold) {
+  // Apply htmlTransformer
+  if (htmlTransformer === 'readableText') {
+    const dom = new JSDOM(bodyHtml, { url });
+    const reader = new Readability(dom.window.document);
+    const article = reader.parse();
+    const readableText = article ? article.textContent : '';
+
+    if (readableTextCharThreshold && readableText.length < readableTextCharThreshold) {
       return bodyHtml;
     }
     const cleanedText = readableText.replace(/\s+/g, ' ').trim();
@@ -386,63 +391,97 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
       if (log.info) {
         log.info(`Using proxy ${proxyHost}:${proxyPort} for ${url}`);
       }
-      const req = http.request(
-        {
-          host: proxyHost,
-          port: proxyPort,
-          method: 'CONNECT',
-          path: url,
-          headers: {
-            Host: proxyHost,
-            'Proxy-Authorization': `Basic ${Buffer.from(proxyAuth).toString('base64')}`,
-          },
+
+      // Use https-proxy-agent or similar approach
+      // For now, let's use a simpler approach with custom agent
+      const targetUrl = new URL(url);
+      const isHttps = targetUrl.protocol === 'https:';
+
+      // Create a custom agent that uses the proxy
+      const net = require('net');
+      const tls = require('tls');
+
+      const proxyReq = http.request({
+        host: proxyHost,
+        port: proxyPort,
+        method: 'CONNECT',
+        path: `${targetUrl.hostname}:${targetUrl.port || (isHttps ? 443 : 80)}`,
+        headers: {
+          'Proxy-Authorization': `Basic ${Buffer.from(proxyAuth).toString('base64')}`,
         },
-        (res) => {
-          if (log.debug) {
-            log.debug(`Proxy CONNECT response status: ${res.statusCode}`);
-          }
-          if (res.statusCode !== 200) {
-            clearTimeout(timeoutId);
-            reject(new Error(`Proxy CONNECT failed with status ${res.statusCode}`));
-            return;
-          }
+      });
 
-          const targetUrl = new URL(url);
-          const protocol = targetUrl.protocol === 'https:' ? https : http;
-          const requestOptions = {
-            protocol: targetUrl.protocol,
-            hostname: targetUrl.hostname,
-            port: targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80),
-            path: `${targetUrl.pathname}${targetUrl.search}`,
-            method: 'GET',
-            headers: requestHeaders,
-            socket: res.socket,
-            // Disable certificate validation for proxy environment
+      proxyReq.on('connect', (proxyRes, socket) => {
+        if (proxyRes.statusCode !== 200) {
+          clearTimeout(timeoutId);
+          reject(new Error(`Proxy CONNECT failed with status ${proxyRes.statusCode}`));
+          return;
+        }
+
+        if (log.debug) {
+          log.debug(`Proxy CONNECT successful for ${targetUrl.hostname}`);
+        }
+
+        if (isHttps) {
+          // For HTTPS, wrap the socket in TLS
+          const tlsSocket = tls.connect({
+            socket: socket,
+            servername: targetUrl.hostname,
             rejectUnauthorized: false,
-          };
+          }, () => {
+            if (log.debug) {
+              log.debug(`TLS handshake successful`);
+            }
 
-          if (log.debug) {
-            log.debug(`Sending request to ${targetUrl.hostname} via proxy`);
-          }
+            const request = https.get({
+              hostname: targetUrl.hostname,
+              port: targetUrl.port || 443,
+              path: `${targetUrl.pathname}${targetUrl.search}`,
+              headers: requestHeaders,
+              createConnection: () => tlsSocket,
+            }, handleResponse);
 
-          const request = protocol.request(requestOptions, handleResponse);
-          request.on('error', (err) => {
+            request.on('error', (err) => {
+              if (log.error) {
+                log.error(`HTTPS request error: ${err.message}`);
+              }
+              handleError(err);
+            });
+          });
+
+          tlsSocket.on('error', (err) => {
             if (log.error) {
-              log.error(`Request error via proxy: ${err.message}`);
+              log.error(`TLS error: ${err.message}`);
             }
             handleError(err);
           });
-          request.end();
-        }
-      );
+        } else {
+          // For HTTP, use the socket directly
+          const request = http.get({
+            hostname: targetUrl.hostname,
+            port: targetUrl.port || 80,
+            path: `${targetUrl.pathname}${targetUrl.search}`,
+            headers: requestHeaders,
+            createConnection: () => socket,
+          }, handleResponse);
 
-      req.on('error', (err) => {
+          request.on('error', (err) => {
+            if (log.error) {
+              log.error(`HTTP request error: ${err.message}`);
+            }
+            handleError(err);
+          });
+        }
+      });
+
+      proxyReq.on('error', (err) => {
         if (log.error) {
           log.error(`Proxy CONNECT error: ${err.message}`);
         }
         handleError(err);
       });
-      req.end();
+
+      proxyReq.end();
     } else {
       if (log.warn) {
         log.warn('PROXY_AUTH not set, performing direct HTTP request');
@@ -603,17 +642,131 @@ async function handleContent($, html, url, settings, statusCode, statusMessage) 
   const processedHtml = processHtml(html, settings, url);
 
   const data = {
-    title: $('title').first().text(),
-    description: $('meta[name=description]').first().attr('content') || '',
-    languageCode: $('html').first().attr('lang') || 'en',
+    html: processedHtml,
     statusCode,
     statusMessage,
-    text: settings.outputFormats?.includes('text') ? htmlToText(processedHtml) : undefined,
-    markdown: settings.outputFormats?.includes('markdown') ? htmlToMarkdown(processedHtml) : undefined,
-    html: settings.outputFormats?.includes('html') ? processedHtml : undefined,
   };
 
+  // Extract title
+  data.title = $('title').text().trim() || $('h1').first().text().trim() || '';
+
+  // Extract description
+  data.description = $('meta[name="description"]').attr('content') || '';
+
+  // Extract language
+  data.languageCode = $('html').attr('lang') || 'en';
+
+  // Transform to markdown if needed
+  if (settings.outputFormats && settings.outputFormats.includes('markdown')) {
+    const markdownResult = transformHtmlToMarkdown(processedHtml, url);
+    data.markdown = markdownResult.markdown;
+    data.title = data.title || markdownResult.title;
+    data.description = data.description || markdownResult.description;
+    data.languageCode = data.languageCode || markdownResult.languageCode;
+  }
+
+  // Extract text if needed
+  if (settings.outputFormats && settings.outputFormats.includes('text')) {
+    data.text = extractTextFromHtml(processedHtml);
+  }
+
   return data;
+}
+
+/**
+ * Process URLs with controlled concurrency
+ * @param {string[]} urls - URLs to process
+ * @param {Function} processFn - Async function to process each URL
+ * @param {number} concurrency - Number of concurrent operations
+ * @returns {Promise<Array>} - Results in the same order as input URLs
+ */
+async function processWithConcurrency(urls, processFn, concurrency = 3) {
+  const results = new Array(urls.length);
+  const executing = [];
+
+  for (let i = 0; i < urls.length; i++) {
+    const promise = processFn(urls[i], i).then((result) => {
+      results[i] = result;
+      return result;
+    });
+
+    executing.push(promise);
+
+    if (executing.length >= concurrency) {
+      await Promise.race(executing);
+      executing.splice(executing.findIndex((p) => p === promise), 1);
+    }
+  }
+
+  await Promise.all(executing);
+  return results;
+}
+
+async function scrapeWithHttp(urls, inputData, log) {
+  const { contentScraperSettings, searchResults, requestTimeoutSecs, maxRequestRetries, desiredConcurrency } = inputData;
+
+  const concurrency = Math.max(1, Math.min(desiredConcurrency || 3, 10));
+
+  if (log.info) {
+    await log.info(`Scraping ${urls.length} URLs with HTTP, concurrency: ${concurrency}`);
+  }
+
+  const processUrl = async (url, index) => {
+    if (log.info) {
+      await log.info(`Scraping with HTTP: ${url}`);
+    }
+
+    try {
+      const retries = Math.max(0, maxRequestRetries || 0);
+      let lastError = null;
+      let html = '';
+      let statusCode = 0;
+      let statusMessage = 'OK';
+
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const response = await fetchUrl(url, (requestTimeoutSecs || 40) * 1000, log);
+          html = response.html;
+          statusCode = response.statusCode;
+          statusMessage = response.statusMessage || 'OK';
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (attempt === retries) {
+            throw err;
+          }
+          // Wait before retry
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+
+      if (lastError) {
+        throw lastError;
+      }
+
+      const $ = load(html);
+
+      const data = await handleContent($, html, url, contentScraperSettings, statusCode, statusMessage);
+
+      if (searchResults && searchResults[index]) {
+        data.searchResult = searchResults[index];
+      }
+
+      return createOutputItem(url, data, contentScraperSettings);
+    } catch (err) {
+      if (log.error) {
+        await log.error(`Failed to scrape ${url}: ${err.message}`);
+      }
+      return {
+        url,
+        error: err.message,
+        status: 'failed',
+      };
+    }
+  };
+
+  return processWithConcurrency(urls, processUrl, concurrency);
 }
 
 async function scrapeWithBrowser(urls, inputData, log) {
@@ -760,143 +913,50 @@ async function scrapeWithBrowser(urls, inputData, log) {
   }
 }
 
-/**
- * Process URLs with controlled concurrency
- * @param {string[]} urls - URLs to process
- * @param {Function} processFn - Async function to process each URL
- * @param {number} concurrency - Number of concurrent operations
- * @returns {Promise<Array>} - Results in the same order as input URLs
- */
-async function processWithConcurrency(urls, processFn, concurrency = 3) {
-  const results = new Array(urls.length);
-  const executing = [];
-
-  for (let i = 0; i < urls.length; i++) {
-    const promise = processFn(urls[i], i).then((result) => {
-      results[i] = result;
-      return result;
-    });
-
-    executing.push(promise);
-
-    if (executing.length >= concurrency) {
-      await Promise.race(executing);
-      executing.splice(executing.findIndex((p) => p === promise), 1);
-    }
-  }
-
-  await Promise.all(executing);
-  return results;
-}
-
-async function scrapeWithHttp(urls, inputData, log) {
-  const { contentScraperSettings, searchResults, requestTimeoutSecs, maxRequestRetries, desiredConcurrency } = inputData;
-
-  const concurrency = Math.max(1, Math.min(desiredConcurrency || 3, 10));
-
-  if (log.info) {
-    await log.info(`Scraping ${urls.length} URLs with HTTP, concurrency: ${concurrency}`);
-  }
-
-  const processUrl = async (url, index) => {
-    if (log.info) {
-      await log.info(`Scraping with HTTP: ${url}`);
-    }
-
-    try {
-      const retries = Math.max(0, maxRequestRetries || 0);
-      let lastError = null;
-      let html = '';
-      let statusCode = 0;
-      let statusMessage = 'OK';
-
-      for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-          const response = await fetchUrl(url, (requestTimeoutSecs || 40) * 1000, log);
-          html = response.html;
-          statusCode = response.statusCode;
-          statusMessage = response.statusMessage || 'OK';
-          lastError = null;
-          break;
-        } catch (err) {
-          lastError = err;
-          if (attempt === retries) {
-            throw err;
-          }
-          // Wait before retry
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        }
-      }
-
-      if (lastError) {
-        throw lastError;
-      }
-
-      const $ = load(html);
-
-      const data = await handleContent($, html, url, contentScraperSettings, statusCode, statusMessage);
-
-      if (searchResults && searchResults[index]) {
-        data.searchResult = searchResults[index];
-      }
-
-      return createOutputItem(url, data, contentScraperSettings);
-    } catch (err) {
-      if (log.error) {
-        await log.error(`Failed to scrape ${url}: ${err.message}`);
-      }
-      return {
-        url,
-        error: err.message,
-        status: 'failed',
-      };
-    }
-  };
-
-  return processWithConcurrency(urls, processUrl, concurrency);
-}
+const COOKIE_WARNING_SELECTORS = `
+  [class*="cookie" i],
+  [id*="cookie" i],
+  [class*="consent" i],
+  [id*="consent" i],
+  [class*="gdpr" i],
+  [id*="gdpr" i],
+  [class*="privacy" i],
+  [id*="privacy" i],
+  [class*="banner" i][class*="cookie" i],
+  [aria-label*="cookie" i],
+  [aria-label*="consent" i]
+`;
 
 function validateInput(input) {
   const validated = { ...input };
 
-  validated.maxResults = Math.min(100, Math.max(1, validated.maxResults || 3));
-  validated.requestTimeoutSecs = Math.min(300, Math.max(1, validated.requestTimeoutSecs || 40));
-
-  validated.outputFormat = validated.outputFormat || 'markdown';
-  if (!['text', 'markdown', 'html'].includes(validated.outputFormat)) {
-    throw new Error('The `outputFormat` parameter must be either `text`, `markdown`, or `html`.');
+  // Validate and set defaults
+  if (!validated.maxResults || validated.maxResults < 1 || validated.maxResults > 100) {
+    validated.maxResults = 3;
   }
 
-  validated.outputFormats = [validated.outputFormat];
+  if (!validated.outputFormat) {
+    validated.outputFormat = 'markdown';
+  }
+
+  if (!validated.outputFormats) {
+    validated.outputFormats = [validated.outputFormat];
+  }
 
   if (!validated.scrapingTool) {
     validated.scrapingTool = 'raw-http';
-  } else if (validated.scrapingTool !== 'browser-playwright' && validated.scrapingTool !== 'raw-http') {
-    throw new Error('The `scrapingTool` parameter must be either `browser-playwright` or `raw-http`.');
   }
 
-  if (!validated.removeElementsCssSelector) {
-    validated.removeElementsCssSelector = DEFAULT_REMOVE_ELEMENTS;
+  if (!validated.requestTimeoutSecs || validated.requestTimeoutSecs < 1 || validated.requestTimeoutSecs > 300) {
+    validated.requestTimeoutSecs = 40;
+  }
+
+  if (!validated.dynamicContentWaitSecs || validated.dynamicContentWaitSecs < 0 || validated.dynamicContentWaitSecs > 60) {
+    validated.dynamicContentWaitSecs = 10;
   }
 
   if (!validated.maxRequestRetries && validated.maxRequestRetries !== 0) {
     validated.maxRequestRetries = 1;
-  }
-
-  if (!validated.dynamicContentWaitSecs && validated.dynamicContentWaitSecs !== 0) {
-    validated.dynamicContentWaitSecs = 10;
-  }
-
-  if (validated.removeCookieWarnings === undefined) {
-    validated.removeCookieWarnings = true;
-  }
-
-  if (!validated.htmlTransformer) {
-    validated.htmlTransformer = 'none';
-  }
-
-  if (!validated.readableTextCharThreshold) {
-    validated.readableTextCharThreshold = 0;
   }
 
   if (!validated.serpMaxRetries && validated.serpMaxRetries !== 0) {
