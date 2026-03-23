@@ -383,6 +383,9 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
     };
 
     if (proxyAuth) {
+      if (log.info) {
+        log.info(`Using proxy ${proxyHost}:${proxyPort} for ${url}`);
+      }
       const req = http.request(
         {
           host: proxyHost,
@@ -395,6 +398,9 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
           },
         },
         (res) => {
+          if (log.debug) {
+            log.debug(`Proxy CONNECT response status: ${res.statusCode}`);
+          }
           if (res.statusCode !== 200) {
             clearTimeout(timeoutId);
             reject(new Error(`Proxy CONNECT failed with status ${res.statusCode}`));
@@ -411,15 +417,31 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
             method: 'GET',
             headers: requestHeaders,
             socket: res.socket,
+            // Disable certificate validation for proxy environment
+            rejectUnauthorized: false,
           };
 
+          if (log.debug) {
+            log.debug(`Sending request to ${targetUrl.hostname} via proxy`);
+          }
+
           const request = protocol.request(requestOptions, handleResponse);
-          request.on('error', handleError);
+          request.on('error', (err) => {
+            if (log.error) {
+              log.error(`Request error via proxy: ${err.message}`);
+            }
+            handleError(err);
+          });
           request.end();
         }
       );
 
-      req.on('error', handleError);
+      req.on('error', (err) => {
+        if (log.error) {
+          log.error(`Proxy CONNECT error: ${err.message}`);
+        }
+        handleError(err);
+      });
       req.end();
     } else {
       if (log.warn) {
