@@ -29,21 +29,26 @@
       "title": "Output Format",
       "name": "outputFormat",
       "type": "string",
-      "editor": "radio",
+      "editor": "select",
       "description": "The format of the output content.",
       "default": "markdown",
-      "enum": ["markdown", "text", "html"],
-      "enumNames": ["Markdown", "Plain Text", "HTML"]
+      "options": [
+        { "label": "Markdown", "value": "markdown" },
+        { "label": "Plain Text", "value": "text" },
+        { "label": "HTML", "value": "html" }
+      ]
     },
     {
       "title": "Scraping Tool",
       "name": "scrapingTool",
       "type": "string",
-      "editor": "radio",
+      "editor": "select",
       "description": "Raw HTTP is fast but cannot handle JavaScript. Browser mode handles dynamic content but is slower.",
       "default": "raw-http",
-      "enum": ["raw-http", "browser-playwright"],
-      "enumNames": ["Raw HTTP (Fast)", "Browser (Playwright)"]
+      "options": [
+        { "label": "Raw HTTP (Fast)", "value": "raw-http" },
+        { "label": "Browser (Playwright)", "value": "browser-playwright" }
+      ]
     },
     {
       "title": "Request Timeout (seconds)",
