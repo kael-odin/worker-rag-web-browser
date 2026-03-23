@@ -19,6 +19,42 @@ const DEFAULT_REMOVE_ELEMENTS = "nav, footer, script, style, noscript, svg, img[
 
 const noop = async () => {};
 
+/**
+ * TimeMeasures utility for performance tracking
+ */
+class TimeMeasures {
+  constructor() {
+    this.measures = [];
+    this.startTime = Date.now();
+  }
+
+  addEvent(event) {
+    const time = Date.now();
+    const timeDeltaPrevMs = this.measures.length > 0
+      ? time - this.measures[this.measures.length - 1].timeMs
+      : 0;
+
+    this.measures.push({
+      event,
+      timeMs: time,
+      timeDeltaPrevMs,
+    });
+  }
+
+  getMeasures() {
+    const firstMeasure = this.measures[0]?.timeMs || this.startTime;
+    return this.measures.map((measure) => ({
+      event: measure.event,
+      timeMs: measure.timeMs - firstMeasure,
+      timeDeltaPrevMs: measure.timeDeltaPrevMs,
+    }));
+  }
+
+  getTotalTime() {
+    return Date.now() - this.startTime;
+  }
+}
+
 function getLogger(cafesdk) {
   if (cafesdk && cafesdk.log) {
     return {
@@ -99,31 +135,121 @@ function processHtml(html, settings, url) {
   return bodyHtml;
 }
 
-function scrapeGoogleResults($) {
-  const results = [];
-  const seenUrls = new Set();
-
-  const selectors = ['#search .g', '#rso .g', '.g[data-hveid]'];
-
-  for (const selector of selectors) {
-    $(selector).each((_, el) => {
-      const $el = $(el);
-      const title = $el.find('h3').first().text();
-      const link = $el.find('a').first().attr('href');
-      const desc = $el.find('[data-sncf], .VwiC3b, .IsZvec').text();
-
-      if (title && link && link.startsWith('http') && !seenUrls.has(link)) {
-        seenUrls.add(link);
-        results.push({
-          title,
-          url: link,
-          description: desc.trim(),
-        });
-      }
-    });
+/**
+ * Validates if a URL is a valid absolute URL and filters out Google's internal search URLs
+ */
+function isValidUrl(url) {
+  if (!url || typeof url !== 'string') {
+    return false;
   }
 
-  return results;
+  // Reject Google's internal search URLs (relative URLs starting with /search)
+  if (url.startsWith('/search')) {
+    return false;
+  }
+
+  // Check if it's a valid HTTP/HTTPS URL
+  try {
+    const urlObj = new URL(url, 'http://example.com');
+    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Deduplicates search results based on their title and URL
+ */
+function deduplicateResults(results) {
+  const deduplicatedResults = [];
+  const resultHashes = new Set();
+  for (const result of results) {
+    const hash = JSON.stringify({ title: result.title, url: result.url });
+    if (!resultHashes.has(hash)) {
+      deduplicatedResults.push(result);
+      resultHashes.add(hash);
+    }
+  }
+  return deduplicatedResults;
+}
+
+/**
+ * Extracts search results from the given Cheerio instance
+ * Uses multiple selectors to handle Google's changing HTML structure
+ */
+function scrapeGoogleResults($, log) {
+  const results = [];
+
+  // Debug: log the HTML structure if no results found
+  const bodyText = $('body').text().substring(0, 500);
+  if (log && log.debug) {
+    log.debug(`Page body preview: ${bodyText}...`);
+  }
+
+  // Multiple selectors to handle different Google search result layouts
+  // Based on @apify/google-search - updated to handle various layouts
+  const resultSelectors = [
+    '.hlcw0c', // Top result with site links
+    '.g.Ww4FFb', // General search results
+    '.MjjYud', // General search results 2025 March
+    '.g .tF2Cxc>.yuRUbf', // Old search selector 2021 January
+    '.g [data-header-feature="0"]', // Old search selector 2022 January
+    '.g .rc', // Very old selector
+    '.sATSHe', // Another new selector in March 2025
+    '#search .g', // Current fallback
+    '#rso .g', // Alternative fallback
+    '.g[data-hveid]', // Data attribute based
+    '[data-ved] h3', // Alternative title-based approach
+    'h3', // Most generic fallback for any heading that might be a result
+  ];
+
+  // Try each selector individually to find matches
+  for (const selector of resultSelectors) {
+    const elements = $(selector);
+    if (elements.length > 0 && log && log.debug) {
+      log.debug(`Selector "${selector}" found ${elements.length} elements`);
+    }
+  }
+
+  const selector = resultSelectors.join(', ');
+
+  $(selector).each((_, el) => {
+    const $el = $(el);
+
+    // Remove action menu to avoid extracting wrong text
+    $el.find('div.action-menu').remove();
+
+    // Try multiple strategies to find the title and link
+    let title = $el.find('h3').first().text();
+    let link = $el.find('a').first().attr('href');
+    let desc = $el.find('[data-sncf], .VwiC3b, .IsZvec, .s3v94d, .yXK7lf, .lEBKkf, .st, span').text();
+
+    // If we only found a title (from h3 selector), try to find the closest link
+    if (title && !link) {
+      // Look for a link in parent or sibling elements
+      const parentLink = $el.closest('a').attr('href') ||
+                        $el.parent().find('a').first().attr('href') ||
+                        $el.siblings('a').first().attr('href');
+      if (parentLink) {
+        link = parentLink;
+      }
+    }
+
+    // Only include results with both title and a valid URL
+    if (title && link && isValidUrl(link)) {
+      results.push({
+        title: title.trim(),
+        url: link,
+        description: desc.trim(),
+      });
+    }
+  });
+
+  if (log && log.debug) {
+    log.debug(`Total results found before deduplication: ${results.length}`);
+  }
+
+  return deduplicateResults(results);
 }
 
 function createOutputItem(url, data, settings) {
@@ -162,6 +288,12 @@ function createOutputItem(url, data, settings) {
 }
 
 async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error: console.error }) {
+  const zlib = require('zlib');
+  const { promisify } = require('util');
+  const gunzip = promisify(zlib.gunzip);
+  const inflate = promisify(zlib.inflate);
+  const brotliDecompress = promisify(zlib.brotliDecompress);
+
   return new Promise((resolve, reject) => {
     const proxyAuth = process.env.PROXY_AUTH;
     const proxyHost = 'proxy-inner.cafescraper.com';
@@ -170,38 +302,75 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
     const requestHeaders = {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5',
-      'Accept-Encoding': 'gzip, deflate',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
     };
 
     const timeoutId = setTimeout(() => {
       reject(new Error(`Request timeout after ${timeout}ms`));
     }, timeout);
 
-    const handleResponse = (response) => {
+    const decompressResponse = async (buffer, encoding) => {
+      try {
+        switch (encoding) {
+          case 'gzip':
+            return await gunzip(buffer);
+          case 'deflate':
+            return await inflate(buffer);
+          case 'br':
+            return await brotliDecompress(buffer);
+          default:
+            return buffer;
+        }
+      } catch (err) {
+        if (log.warn) {
+          log.warn(`Decompression failed (${encoding}): ${err.message}, returning raw data`);
+        }
+        return buffer;
+      }
+    };
+
+    const handleResponse = async (response) => {
       clearTimeout(timeoutId);
-      let data = '';
       const chunks = [];
-      
+
       response.on('data', (chunk) => {
         chunks.push(chunk);
       });
-      
-      response.on('end', () => {
+
+      response.on('end', async () => {
         try {
           const buffer = Buffer.concat(chunks);
-          if (response.headers['content-encoding'] === 'gzip') {
-            const zlib = require('zlib');
-            data = zlib.gunzipSync(buffer).toString('utf8');
-          } else {
-            data = buffer.toString('utf8');
-          }
+          const encoding = response.headers['content-encoding'];
+          const decompressed = await decompressResponse(buffer, encoding);
+          const data = decompressed.toString('utf8');
+
+          resolve({
+            html: data,
+            statusCode: response.statusCode,
+            statusMessage: response.statusMessage || '',
+            headers: response.headers,
+          });
         } catch (e) {
-          data = chunks.join('');
+          if (log.error) {
+            log.error(`Error processing response: ${e.message}`);
+          }
+          resolve({
+            html: '',
+            statusCode: response.statusCode || 500,
+            statusMessage: `Error processing response: ${e.message}`,
+            headers: response.headers,
+          });
         }
-        resolve({ html: data, statusCode: response.statusCode, statusMessage: response.statusMessage || '' });
+      });
+
+      response.on('error', (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
       });
     };
 
@@ -273,63 +442,108 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
 
 async function runGoogleSearch(query, maxResults, serpMaxRetries, log) {
   if (log.info) {
-    await log.info(`Running Google Search for: ${query}`);
+    await log.info(`Running Google Search for: ${query}, maxResults: ${maxResults}`);
   }
 
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults * 3}`;
   const retries = Math.max(0, serpMaxRetries || 0);
+  const GOOGLE_RESULTS_PER_PAGE = 10;
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const { html, statusCode } = await fetchUrl(searchUrl, 30000, log);
+  // Calculate total pages needed (Google returns max 10 results per page)
+  // Add +1 to handle pages that return fewer than 10 results
+  const totalPages = Math.ceil(maxResults / GOOGLE_RESULTS_PER_PAGE) + 1;
 
-      if (statusCode !== 200 && log.warn) {
-        await log.warn(`Google search returned status ${statusCode}`);
+  const allResults = [];
+
+  for (let currentPage = 0; currentPage < totalPages; currentPage++) {
+    const startOffset = currentPage * GOOGLE_RESULTS_PER_PAGE;
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&start=${startOffset}`;
+
+    if (log.info) {
+      await log.info(`Fetching page ${currentPage + 1}/${totalPages} (offset: ${startOffset})`);
+    }
+
+    let pageSuccess = false;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const { html, statusCode } = await fetchUrl(searchUrl, 30000, log);
+
+        if (statusCode !== 200 && log.warn) {
+          await log.warn(`Google search returned status ${statusCode}`);
+        }
+
+        if (!html || html.length < 100) {
+          if (log.warn) {
+            await log.warn(`Google search returned empty or very short response (${html?.length || 0} chars), page ${currentPage + 1}, attempt ${attempt + 1}`);
+          }
+          if (attempt < retries) {
+            await new Promise(r => setTimeout(r, 2000));
+            continue;
+          }
+          break; // Move to next page
+        }
+
+        const $ = load(html);
+
+        if ($('#captcha').length > 0 || $('form[action*="verify"]').length > 0) {
+          if (log.error) {
+            await log.error('Google presented CAPTCHA, search failed');
+          }
+          return allResults.slice(0, maxResults);
+        }
+
+        const organicResults = scrapeGoogleResults($, log);
+      if (log.info) {
+        await log.info(`Page ${currentPage + 1}: Found ${organicResults.length} organic results`);
       }
 
-      if (!html || html.length < 100) {
-        if (log.warn) {
-          await log.warn(`Google search returned empty or very short response (${html?.length || 0} chars), attempt ${attempt + 1}`);
+        // Merge with accumulated results
+        allResults.push(...organicResults);
+
+        // Check if we should stop pagination
+        // Stop if: (1) we have enough results OR (2) Google returned 0 results (empty page)
+        if (organicResults.length === 0) {
+          if (log.info) {
+            await log.info(`No more results on page ${currentPage + 1}, stopping pagination`);
+          }
+          return allResults.slice(0, maxResults);
+        }
+
+        if (allResults.length >= maxResults) {
+          if (log.info) {
+            await log.info(`Collected enough results (${allResults.length}), stopping pagination`);
+          }
+          return allResults.slice(0, maxResults);
+        }
+
+        pageSuccess = true;
+        break; // Success, move to next page
+
+      } catch (err) {
+        if (log.error) {
+          await log.error(`Google search page ${currentPage + 1}, attempt ${attempt + 1} failed: ${err.message}`);
         }
         if (attempt < retries) {
           await new Promise(r => setTimeout(r, 2000));
-          continue;
         }
-        return [];
       }
+    }
 
-      const $ = load(html);
-      
-      if ($('#captcha').length > 0 || $('form[action*="verify"]').length > 0) {
-        if (log.error) {
-          await log.error('Google presented CAPTCHA, search failed');
-        }
-        return [];
-      }
+    if (!pageSuccess && log.warn) {
+      await log.warn(`Failed to fetch page ${currentPage + 1} after ${retries + 1} attempts`);
+    }
 
-      const organicResults = scrapeGoogleResults($);
-      if (log.info) {
-        await log.info(`Found ${organicResults.length} organic results`);
-      }
-
-      if (organicResults.length > 0) {
-        return organicResults.slice(0, maxResults);
-      }
-
-      if (attempt < retries) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    } catch (err) {
-      if (log.error) {
-        await log.error(`Google search attempt ${attempt + 1} failed: ${err.message}`);
-      }
-      if (attempt < retries) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
+    // Small delay between pages to avoid rate limiting
+    if (currentPage < totalPages - 1) {
+      await new Promise(r => setTimeout(r, 1000));
     }
   }
 
-  return [];
+  if (log.info) {
+    await log.info(`Pagination complete. Total unique results: ${allResults.length}`);
+  }
+
+  return allResults.slice(0, maxResults);
 }
 
 async function connectBrowser(log) {
@@ -378,7 +592,6 @@ async function handleContent($, html, url, settings, statusCode, statusMessage) 
 }
 
 async function scrapeWithBrowser(urls, inputData, log) {
-  const results = [];
   const {
     contentScraperSettings,
     searchResults,
@@ -386,41 +599,82 @@ async function scrapeWithBrowser(urls, inputData, log) {
     dynamicContentWaitSecs,
     maxRequestRetries,
     removeCookieWarnings,
+    desiredConcurrency,
   } = inputData;
+
+  const concurrency = Math.max(1, Math.min(desiredConcurrency || 2, 5)); // Lower concurrency for browser
+
+  if (log.info) {
+    await log.info(`Scraping ${urls.length} URLs with Playwright, concurrency: ${concurrency}`);
+  }
 
   const { browser } = await connectBrowser(log);
 
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
+  // Create a pool of pages for reuse
+  const pagePool = [];
+  const maxPages = concurrency;
+
+  const getPage = async () => {
+    if (browser) {
+      return browser.newPage({ viewport: null });
+    } else {
+      const localBrowser = await chromium.launch({ headless: true });
+      const page = await localBrowser.newPage();
+      page._localBrowser = localBrowser; // Attach browser reference for cleanup
+      return page;
+    }
+  };
+
+  const releasePage = async (page) => {
+    try {
+      await page.close();
+    } catch {}
+    if (page._localBrowser) {
+      try {
+        await page._localBrowser.close();
+      } catch {}
+    }
+  };
+
+  const processUrl = async (url, index) => {
     if (log.info) {
       await log.info(`Scraping with Playwright: ${url}`);
     }
 
     let page = null;
-    let localBrowser = null;
 
     try {
-      if (browser) {
-        page = await browser.newPage({ viewport: null });
-      } else {
-        localBrowser = await chromium.launch({ headless: true });
-        page = await localBrowser.newPage();
-      }
+      page = await getPage();
 
       const retries = Math.max(0, maxRequestRetries || 0);
       let lastError = null;
 
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
+          // Use smarter wait strategy
+          const navigationTimeout = (requestTimeoutSecs || 40) * 1000;
+
           await page.goto(url, {
-            timeout: (requestTimeoutSecs || 40) * 1000,
+            timeout: navigationTimeout,
             waitUntil: 'domcontentloaded',
           });
 
-          if (dynamicContentWaitSecs && dynamicContentWaitSecs > 0) {
-            await page.waitForTimeout(dynamicContentWaitSecs * 1000);
-          } else {
-            await page.waitForTimeout(2000);
+          // Smart wait for dynamic content
+          const waitTime = (dynamicContentWaitSecs || 10) * 1000;
+          const hardDelay = Math.min(1000, Math.floor(0.3 * waitTime));
+          await page.waitForTimeout(hardDelay);
+
+          // Try to wait for network idle for remaining time
+          const remainingTime = waitTime - hardDelay;
+          if (remainingTime > 0) {
+            try {
+              await Promise.race([
+                page.waitForLoadState('networkidle', { timeout: remainingTime }),
+                page.waitForTimeout(remainingTime),
+              ]);
+            } catch {
+              // Ignore timeout, continue with what we have
+            }
           }
 
           if (removeCookieWarnings) {
@@ -436,7 +690,7 @@ async function scrapeWithBrowser(urls, inputData, log) {
           if (attempt === retries) {
             throw err;
           }
-          await page.waitForTimeout(1000);
+          await page.waitForTimeout(1000 * (attempt + 1));
         }
       }
 
@@ -449,49 +703,77 @@ async function scrapeWithBrowser(urls, inputData, log) {
 
       const data = await handleContent($, html, url, contentScraperSettings, 200, 'OK');
 
-      if (searchResults && searchResults[i]) {
-        data.searchResult = searchResults[i];
+      if (searchResults && searchResults[index]) {
+        data.searchResult = searchResults[index];
       }
 
-      results.push(createOutputItem(url, data, contentScraperSettings));
+      return createOutputItem(url, data, contentScraperSettings);
     } catch (err) {
       if (log.error) {
         await log.error(`Failed to scrape ${url}: ${err.message}`);
       }
-      results.push({
+      return {
         url,
         error: err.message,
         status: 'failed',
-      });
+      };
     } finally {
       if (page) {
-        try {
-          await page.close();
-        } catch {}
+        await releasePage(page);
       }
-      if (localBrowser) {
-        try {
-          await localBrowser.close();
-        } catch {}
-      }
+    }
+  };
+
+  try {
+    return await processWithConcurrency(urls, processUrl, concurrency);
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Process URLs with controlled concurrency
+ * @param {string[]} urls - URLs to process
+ * @param {Function} processFn - Async function to process each URL
+ * @param {number} concurrency - Number of concurrent operations
+ * @returns {Promise<Array>} - Results in the same order as input URLs
+ */
+async function processWithConcurrency(urls, processFn, concurrency = 3) {
+  const results = new Array(urls.length);
+  const executing = [];
+
+  for (let i = 0; i < urls.length; i++) {
+    const promise = processFn(urls[i], i).then((result) => {
+      results[i] = result;
+      return result;
+    });
+
+    executing.push(promise);
+
+    if (executing.length >= concurrency) {
+      await Promise.race(executing);
+      executing.splice(executing.findIndex((p) => p === promise), 1);
     }
   }
 
-  if (browser) {
-    try {
-      await browser.close();
-    } catch {}
-  }
-
+  await Promise.all(executing);
   return results;
 }
 
 async function scrapeWithHttp(urls, inputData, log) {
-  const results = [];
-  const { contentScraperSettings, searchResults, requestTimeoutSecs, maxRequestRetries } = inputData;
+  const { contentScraperSettings, searchResults, requestTimeoutSecs, maxRequestRetries, desiredConcurrency } = inputData;
 
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
+  const concurrency = Math.max(1, Math.min(desiredConcurrency || 3, 10));
+
+  if (log.info) {
+    await log.info(`Scraping ${urls.length} URLs with HTTP, concurrency: ${concurrency}`);
+  }
+
+  const processUrl = async (url, index) => {
     if (log.info) {
       await log.info(`Scraping with HTTP: ${url}`);
     }
@@ -516,6 +798,8 @@ async function scrapeWithHttp(urls, inputData, log) {
           if (attempt === retries) {
             throw err;
           }
+          // Wait before retry
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
         }
       }
 
@@ -527,24 +811,24 @@ async function scrapeWithHttp(urls, inputData, log) {
 
       const data = await handleContent($, html, url, contentScraperSettings, statusCode, statusMessage);
 
-      if (searchResults && searchResults[i]) {
-        data.searchResult = searchResults[i];
+      if (searchResults && searchResults[index]) {
+        data.searchResult = searchResults[index];
       }
 
-      results.push(createOutputItem(url, data, contentScraperSettings));
+      return createOutputItem(url, data, contentScraperSettings);
     } catch (err) {
       if (log.error) {
         await log.error(`Failed to scrape ${url}: ${err.message}`);
       }
-      results.push({
+      return {
         url,
         error: err.message,
         status: 'failed',
-      });
+      };
     }
-  }
+  };
 
-  return results;
+  return processWithConcurrency(urls, processUrl, concurrency);
 }
 
 function validateInput(input) {
@@ -594,11 +878,22 @@ function validateInput(input) {
     validated.serpMaxRetries = 2;
   }
 
+  // Desired concurrency for parallel scraping
+  if (!validated.desiredConcurrency && validated.desiredConcurrency !== 0) {
+    validated.desiredConcurrency = 3;
+  } else {
+    validated.desiredConcurrency = Math.min(10, Math.max(1, validated.desiredConcurrency));
+  }
+
   return validated;
 }
 
 async function runRAGWebBrowser(inputData, cafesdk) {
   const log = getLogger(cafesdk);
+  const timeMeasures = new TimeMeasures();
+
+  timeMeasures.addEvent('request-received');
+
   const input = validateInput(inputData);
 
   const {
@@ -614,6 +909,7 @@ async function runRAGWebBrowser(inputData, cafesdk) {
     serpMaxRetries,
     dynamicContentWaitSecs,
     maxRequestRetries,
+    debugMode,
   } = input;
 
   const contentScraperSettings = {
@@ -632,9 +928,12 @@ async function runRAGWebBrowser(inputData, cafesdk) {
   if (isUrl) {
     await log.info(`Direct URL provided: ${query}`);
     urlsToScrape = [query];
+    timeMeasures.addEvent('url-parsed');
   } else if (query) {
     try {
+      timeMeasures.addEvent('before-search');
       searchResults = await runGoogleSearch(query, maxResults, serpMaxRetries, log);
+      timeMeasures.addEvent('search-complete');
       urlsToScrape = searchResults.map((r) => r.url).filter(Boolean);
       await log.info(`Found ${urlsToScrape.length} URLs to scrape`);
     } catch (err) {
@@ -661,11 +960,39 @@ async function runRAGWebBrowser(inputData, cafesdk) {
     maxRequestRetries,
   };
 
+  timeMeasures.addEvent('before-scraping');
+
+  let results;
   if (scrapingTool === 'browser-playwright') {
-    return scrapeWithBrowser(urlsToScrape, runtimeSettings, log);
+    results = await scrapeWithBrowser(urlsToScrape, runtimeSettings, log);
+  } else {
+    results = await scrapeWithHttp(urlsToScrape, runtimeSettings, log);
   }
 
-  return scrapeWithHttp(urlsToScrape, runtimeSettings, log);
+  timeMeasures.addEvent('scraping-complete');
+
+  // Add performance metrics to results if debug mode is enabled
+  if (debugMode) {
+    const perfMetrics = {
+      timeMeasures: timeMeasures.getMeasures(),
+      totalTimeMs: timeMeasures.getTotalTime(),
+      urlsScraped: urlsToScrape.length,
+      scrapingTool,
+    };
+
+    if (log.info) {
+      await log.info(`Performance metrics: ${JSON.stringify(perfMetrics)}`);
+    }
+
+    // Attach debug info to each result
+    results.forEach((result) => {
+      if (result.crawl) {
+        result.crawl.debug = perfMetrics;
+      }
+    });
+  }
+
+  return results;
 }
 
 module.exports = { runRAGWebBrowser };

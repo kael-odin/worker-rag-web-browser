@@ -45,6 +45,8 @@ async function run() {
             scrapingTool,
             requestTimeoutSecs,
             removeCookieWarnings,
+            debugMode,
+            desiredConcurrency: inputJson?.desiredConcurrency || 3,
         }, cafesdk)
 
         const headers = [

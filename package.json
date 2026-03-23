@@ -1,23 +1,55 @@
 {
   "name": "worker-rag-web-browser",
-  "version": "1.0.0",
-  "description": "CafeScraper Worker: RAG Web Browser - Google Search and web content extraction for LLM",
+  "version": "1.1.0",
+  "description": "CafeScraper Worker: RAG Web Browser - Google Search and web content extraction for LLM and AI applications",
   "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node main.js",
+    "test": "node local-test.js",
+    "lint": "echo 'No linter configured'",
+    "build": "echo 'No build step required'"
   },
-  "keywords": [],
+  "keywords": [
+    "rag",
+    "web-scraper",
+    "google-search",
+    "content-extraction",
+    "markdown",
+    "llm",
+    "ai",
+    "playwright",
+    "cheerio",
+    "cafescraper",
+    "worker",
+    "web-browser",
+    "text-extraction",
+    "html-to-markdown",
+    "readability",
+    "concurrent-scraping",
+    "performance-monitoring"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/worker-rag-web-browser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/worker-rag-web-browser/issues"
+  },
+  "homepage": "https://github.com/your-org/worker-rag-web-browser#readme",
   "dependencies": {
     "@grpc/grpc-js": "^1.13.4",
-    "google-protobuf": "^4.0.0",
+    "@mozilla/readability": "^0.5.0",
     "cheerio": "^1.0.0",
-    "turndown": "^7.2.0",
+    "google-protobuf": "^4.0.0",
     "joplin-turndown-plugin-gfm": "^1.0.12",
     "jsdom": "^24.1.1",
-    "@mozilla/readability": "^0.5.0",
-    "playwright": "1.46.0"
+    "playwright": "1.46.0",
+    "turndown": "^7.2.0"
   }
 }
