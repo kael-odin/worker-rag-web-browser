@@ -854,30 +854,42 @@ async function scrapeWithBrowser(urls, inputData, log) {
 
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-          // Use smarter wait strategy
+          // Use smarter wait strategy for SPA pages
           const navigationTimeout = (requestTimeoutSecs || 40) * 1000;
 
+          // First, navigate with 'load' state to ensure basic page load
           await page.goto(url, {
             timeout: navigationTimeout,
-            waitUntil: 'domcontentloaded',
+            waitUntil: 'load',
           });
 
-          // Smart wait for dynamic content
+          // Smart wait for dynamic content - critical for SPA pages
           const waitTime = (dynamicContentWaitSecs || 10) * 1000;
-          const hardDelay = Math.min(1000, Math.floor(0.3 * waitTime));
-          await page.waitForTimeout(hardDelay);
+          
+          // Wait for network idle with fallback
+          try {
+            await Promise.race([
+              page.waitForLoadState('networkidle', { timeout: waitTime }),
+              page.waitForTimeout(waitTime),
+            ]);
+          } catch {
+            // Continue even if networkidle times out
+          }
 
-          // Try to wait for network idle for remaining time
-          const remainingTime = waitTime - hardDelay;
-          if (remainingTime > 0) {
-            try {
-              await Promise.race([
-                page.waitForLoadState('networkidle', { timeout: remainingTime }),
-                page.waitForTimeout(remainingTime),
-              ]);
-            } catch {
-              // Ignore timeout, continue with what we have
-            }
+          // Additional wait for SPA content to render
+          // Check if body has meaningful content (not just empty shell)
+          try {
+            await page.waitForFunction(
+              () => {
+                const bodyText = document.body?.innerText || '';
+                const hasContent = bodyText.trim().length > 50;
+                return hasContent;
+              },
+              { timeout: 5000 }
+            );
+          } catch {
+            // If content check fails, wait a bit more for JS to execute
+            await page.waitForTimeout(2000);
           }
 
           if (removeCookieWarnings) {

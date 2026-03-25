@@ -1,99 +1,105 @@
 {
-  "description": "RAG Web Browser - Web scraping tool for RAG pipelines. It queries Google Search, scrapes the top N pages, and returns their content as Markdown.",
-  "b": "url",
+  "description": "RAG Web Browser - Web scraping tool for RAG pipelines. Queries Google Search or scrapes URLs directly, returns content as Markdown. | RAG 网页浏览器 - RAG 管道的网页抓取工具。支持 Google 搜索或直接抓取 URL，返回 Markdown 格式内容。",
+  "b": "query",
   "properties": [
     {
-      "title": "URL",
-      "name": "url",
-      "type": "array",
-      "editor": "requestList",
-      "description": "Enter a URL or search query. For direct URL scraping, enter the full URL (e.g., https://example.com). For Google search, enter keywords.",
-      "default": [
-        {
-          "url": "https://example.com"
-        }
-      ],
+      "title": "Search Query or URL | 搜索关键词或 URL",
+      "name": "query",
+      "type": "string",
+      "editor": "textfield",
+      "description": "Enter Google Search keywords or a URL to scrape directly. Examples: 'web scraping tools' or 'https://example.com'. | 输入 Google 搜索关键词或直接抓取的 URL。例如：'网页抓取工具' 或 'https://example.com'",
+      "prefill": "web browser for RAG pipelines -site:reddit.com",
       "required": true
     },
     {
-      "title": "Max Results",
+      "title": "Max Results | 最大结果数",
       "name": "maxResults",
       "type": "integer",
       "editor": "number",
-      "description": "Maximum number of search results to return (1-100).",
+      "description": "Maximum number of search results to return (1-100). Ignored if query is a URL. | 返回的最大搜索结果数（1-100）。如果 query 是 URL 则忽略。",
       "default": 3,
       "minimum": 1,
       "maximum": 100
     },
     {
-      "title": "Output Format",
+      "title": "Output Format | 输出格式",
       "name": "outputFormat",
       "type": "string",
       "editor": "select",
-      "description": "The format of the output content.",
+      "description": "The format of the output content. | 输出内容的格式。",
       "default": "markdown",
       "options": [
         { "label": "Markdown", "value": "markdown" },
-        { "label": "Plain Text", "value": "text" },
+        { "label": "Plain Text | 纯文本", "value": "text" },
         { "label": "HTML", "value": "html" }
       ]
     },
     {
-      "title": "Scraping Tool",
+      "title": "Scraping Tool | 抓取工具",
       "name": "scrapingTool",
       "type": "string",
       "editor": "select",
-      "description": "Raw HTTP is fast but cannot handle JavaScript. Browser mode handles dynamic content but is slower.",
+      "description": "Raw HTTP is fast but cannot handle JavaScript. Browser mode handles dynamic content but is slower. | Raw HTTP 快速但无法处理 JavaScript。浏览器模式可处理动态内容但较慢。",
       "default": "raw-http",
       "options": [
-        { "label": "Raw HTTP (Fast)", "value": "raw-http" },
-        { "label": "Browser (Playwright)", "value": "browser-playwright" }
+        { "label": "Raw HTTP (Fast) | 快速 HTTP", "value": "raw-http" },
+        { "label": "Browser (Playwright) | 浏览器", "value": "browser-playwright" }
       ]
     },
     {
-      "title": "Request Timeout (seconds)",
+      "title": "Request Timeout (secs) | 请求超时(秒)",
       "name": "requestTimeoutSecs",
       "type": "integer",
       "editor": "number",
-      "description": "Maximum time in seconds to wait for a request to complete (1-300).",
+      "description": "Maximum time in seconds to wait for a request to complete (1-300). | 请求完成的最大等待时间（秒，1-300）。",
       "default": 40,
       "minimum": 1,
       "maximum": 300
     },
     {
-      "title": "Max Retries",
+      "title": "Max Retries | 最大重试",
       "name": "maxRequestRetries",
       "type": "integer",
       "editor": "number",
-      "description": "Number of retry attempts for failed requests.",
+      "description": "Number of retry attempts for failed requests. | 失败请求的重试次数。",
       "default": 1,
       "minimum": 0,
       "maximum": 3
     },
     {
-      "title": "Concurrency",
+      "title": "Concurrency | 并发数",
       "name": "desiredConcurrency",
       "type": "integer",
       "editor": "number",
-      "description": "Number of parallel scraping operations. Higher = faster but more resources.",
+      "description": "Number of parallel scraping operations. Higher = faster but more resources. | 并行抓取操作数。越高越快但消耗更多资源。",
       "default": 3,
       "minimum": 1,
       "maximum": 10
     },
     {
-      "title": "Remove Cookie Warnings",
+      "title": "Dynamic Content Wait (secs) | 动态内容等待(秒)",
+      "name": "dynamicContentWaitSecs",
+      "type": "integer",
+      "editor": "number",
+      "description": "Time to wait for dynamic page content (browser mode only). | 等待动态页面内容的时间（仅浏览器模式）。",
+      "default": 10,
+      "minimum": 0,
+      "maximum": 60
+    },
+    {
+      "title": "Remove Cookie Warnings | 移除 Cookie 警告",
       "name": "removeCookieWarnings",
       "type": "boolean",
       "editor": "switch",
-      "description": "Automatically remove cookie warning banners from pages.",
+      "description": "Automatically remove cookie warning banners from pages. | 自动移除页面的 Cookie 警告横幅。",
       "default": true
     },
     {
-      "title": "Debug Mode",
+      "title": "Debug Mode | 调试模式",
       "name": "debugMode",
       "type": "boolean",
       "editor": "switch",
-      "description": "Enable debug logging and performance metrics.",
+      "description": "Enable debug logging and performance metrics. | 启用调试日志和性能指标。",
       "default": false
     }
   ]

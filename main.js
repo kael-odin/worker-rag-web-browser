@@ -8,11 +8,16 @@ async function run() {
         const inputJson = await cafesdk.parameter.getInputJSONObject()
         await cafesdk.log.debug(`Input parameters: ${JSON.stringify(inputJson)}`)
 
-        // Extract query from URL field
+        // Extract query - supports both 'query' (string) and legacy 'url' (array) formats
         let query = ''
-        if (Array.isArray(inputJson?.url)) {
+        if (inputJson?.query && typeof inputJson.query === 'string') {
+            // New format: query string (search keywords or URL)
+            query = inputJson.query.trim()
+        } else if (Array.isArray(inputJson?.url)) {
+            // Legacy format: url array
             query = inputJson.url[0]?.url || inputJson.url[0] || ''
         } else if (typeof inputJson?.url === 'string') {
+            // Legacy format: url string
             query = inputJson.url.trim()
         }
 
@@ -54,12 +59,13 @@ async function run() {
             debugMode,
         }, cafesdk)
 
+        const contentLabel = outputFormat === 'html' ? 'HTML' : outputFormat === 'text' ? 'Text' : 'Markdown'
         const headers = [
             { label: 'Query', key: 'query', format: 'text' },
             { label: 'URL', key: 'url', format: 'text' },
             { label: 'Title', key: 'title', format: 'text' },
             { label: 'Description', key: 'description', format: 'text' },
-            { label: 'Markdown', key: 'markdown', format: 'text' },
+            { label: contentLabel, key: 'content', format: 'text' },
             { label: 'Status Code', key: 'status_code', format: 'integer' },
             { label: 'Error', key: 'error', format: 'text' },
         ]
@@ -68,12 +74,15 @@ async function run() {
 
         if (Array.isArray(results) && results.length > 0) {
             for (const item of results) {
+                // Content is in different fields depending on outputFormat:
+                // worker-main.js createOutputItem puts it in item.markdown / item.html / item.text
+                const content = item.markdown || item.html || item.text || ''
                 await cafesdk.result.pushData({
                     query: query,
                     url: item.url || item.metadata?.url || '',
                     title: item.title || item.metadata?.title || '',
                     description: item.description || item.metadata?.description || '',
-                    markdown: item.markdown || '',
+                    content: content,
                     status_code: item.crawl?.httpStatusCode || 200,
                     error: item.error || '',
                 })
