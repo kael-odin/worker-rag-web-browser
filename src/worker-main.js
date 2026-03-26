@@ -295,6 +295,46 @@ function createOutputItem(url, data, settings) {
   return result;
 }
 
+/**
+ * Parse standard proxy environment variables
+ * Supports: HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, http_proxy, https_proxy, all_proxy
+ */
+function getProxyConfig(targetUrl) {
+  // First check Cafe-specific PROXY_AUTH (for cloud environment)
+  if (process.env.PROXY_AUTH) {
+    return {
+      type: 'cafe',
+      host: 'proxy-inner.cafescraper.com',
+      port: 6000,
+      auth: process.env.PROXY_AUTH,
+    };
+  }
+
+  // Check standard proxy environment variables
+  const isHttps = targetUrl.startsWith('https:');
+  const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy ||
+                   process.env.HTTP_PROXY || process.env.http_proxy ||
+                   process.env.ALL_PROXY || process.env.all_proxy;
+
+  if (proxyUrl) {
+    try {
+      const proxyParsed = new URL(proxyUrl);
+      return {
+        type: 'standard',
+        host: proxyParsed.hostname,
+        port: proxyParsed.port || (proxyParsed.protocol === 'https:' ? 443 : 80),
+        auth: proxyParsed.username && proxyParsed.password 
+          ? `${proxyParsed.username}:${proxyParsed.password}` 
+          : null,
+      };
+    } catch (e) {
+      // Invalid proxy URL, ignore
+    }
+  }
+
+  return null;
+}
+
 async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error: console.error }) {
   const zlib = require('zlib');
   const { promisify } = require('util');
@@ -303,9 +343,7 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
   const brotliDecompress = promisify(zlib.brotliDecompress);
 
   return new Promise((resolve, reject) => {
-    const proxyAuth = process.env.PROXY_AUTH;
-    const proxyHost = 'proxy-inner.cafescraper.com';
-    const proxyPort = 6000;
+    const proxyConfig = getProxyConfig(url);
 
     const requestHeaders = {
       'User-Agent':
@@ -387,9 +425,11 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
       reject(err);
     };
 
-    if (proxyAuth) {
+    if (proxyConfig) {
+      const { type, host, port, auth } = proxyConfig;
+      
       if (log.info) {
-        log.info(`Using proxy ${proxyHost}:${proxyPort} for ${url}`);
+        log.info(`Using proxy ${host}:${port} (${type}) for ${url}`);
       }
 
       // Use https-proxy-agent or similar approach
@@ -402,13 +442,13 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
       const tls = require('tls');
 
       const proxyReq = http.request({
-        host: proxyHost,
-        port: proxyPort,
+        host: host,
+        port: port,
         method: 'CONNECT',
         path: `${targetUrl.hostname}:${targetUrl.port || (isHttps ? 443 : 80)}`,
-        headers: {
-          'Proxy-Authorization': `Basic ${Buffer.from(proxyAuth).toString('base64')}`,
-        },
+        headers: auth ? {
+          'Proxy-Authorization': `Basic ${Buffer.from(auth).toString('base64')}`,
+        } : {},
       });
 
       proxyReq.on('connect', (proxyRes, socket) => {
@@ -636,28 +676,41 @@ async function runGoogleSearch(query, maxResults, serpMaxRetries, log) {
 }
 
 async function connectBrowser(log) {
+  // Check for Cafe cloud environment PROXY_AUTH
   const proxyAuth = process.env.PROXY_AUTH;
-  if (!proxyAuth) {
-    if (log.warn) {
-      await log.warn('PROXY_AUTH not set, using local browser');
-    }
-    return { browser: null, isRemote: false };
-  }
-
-  const browserWSEndpoint = `ws://${proxyAuth}@chrome-ws-inner.cafescraper.com`;
-  if (log.info) {
-    await log.info('Connecting to remote browser via CDP');
-  }
-
-  try {
-    const browser = await chromium.connectOverCDP(browserWSEndpoint);
+  
+  // Check for standard proxy environment variables (for local testing)
+  const standardProxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || 
+                        process.env.https_proxy || process.env.http_proxy;
+  
+  if (proxyAuth) {
+    // Cafe cloud environment - connect to remote browser via CDP
+    const browserWSEndpoint = `ws://${proxyAuth}@chrome-ws-inner.cafescraper.com`;
     if (log.info) {
-      await log.info('Connected to remote browser successfully');
+      await log.info('Connecting to remote browser via CDP (Cafe cloud)');
     }
-    return { browser, isRemote: true };
-  } catch (err) {
-    if (log.error) {
-      await log.error(`Failed to connect to remote browser: ${err.message}`);
+
+    try {
+      const browser = await chromium.connectOverCDP(browserWSEndpoint);
+      if (log.info) {
+        await log.info('Connected to remote browser successfully');
+      }
+      return { browser, isRemote: true };
+    } catch (err) {
+      if (log.error) {
+        await log.error(`Failed to connect to remote browser: ${err.message}`);
+      }
+      return { browser: null, isRemote: false };
+    }
+  } else if (standardProxy) {
+    // Standard proxy environment - Playwright will use HTTP_PROXY/HTTPS_PROXY automatically
+    if (log.info) {
+      await log.info(`Using standard proxy: ${standardProxy}`);
+    }
+    return { browser: null, isRemote: false, hasProxy: true };
+  } else {
+    if (log.warn) {
+      await log.warn('No proxy configured, using local browser');
     }
     return { browser: null, isRemote: false };
   }
@@ -1016,7 +1069,31 @@ async function runRAGWebBrowser(inputData, cafesdk) {
 
   timeMeasures.addEvent('request-received');
 
-  const input = validateInput(inputData);
+  // Handle legacy URL format compatibility
+  // Support both 'query' (new) and 'url' (legacy) parameters
+  let normalizedInput = { ...inputData };
+  if (!normalizedInput.query && normalizedInput.url) {
+    if (Array.isArray(normalizedInput.url)) {
+      // Legacy format: url array [{ url: 'https://...' }, ...] or ['https://...', ...]
+      const firstUrl = normalizedInput.url[0];
+      if (typeof firstUrl === 'string') {
+        normalizedInput.query = firstUrl;
+      } else if (firstUrl && firstUrl.url) {
+        normalizedInput.query = firstUrl.url;
+      }
+      if (log.info) {
+        await log.info(`Legacy url array format detected, using first URL: ${normalizedInput.query}`);
+      }
+    } else if (typeof normalizedInput.url === 'string') {
+      // Legacy format: url string
+      normalizedInput.query = normalizedInput.url;
+      if (log.info) {
+        await log.info(`Legacy url string format detected: ${normalizedInput.query}`);
+      }
+    }
+  }
+
+  const input = validateInput(normalizedInput);
 
   const {
     query,
