@@ -569,7 +569,124 @@ async function fetchUrl(url, timeout = 30000, log = { warn: console.warn, error:
   });
 }
 
-async function runGoogleSearch(query, maxResults, serpMaxRetries, log) {
+/**
+ * Run Google Search using browser (Playwright)
+ * Used when scrapingTool is 'browser-playwright'
+ */
+async function runGoogleSearchWithBrowser(query, maxResults, log, browser = null) {
+  if (log.info) {
+    await log.info(`Running Google Search with Browser for: ${query}, maxResults: ${maxResults}`);
+  }
+
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}`;
+  let browserContext = null;
+  let page = null;
+  let shouldCloseBrowser = false;
+
+  try {
+    // Connect to browser if not provided
+    if (!browser) {
+      const browserResult = await connectBrowser(log);
+      browser = browserResult.browser;
+      shouldCloseBrowser = !browserResult.isRemote;
+    }
+
+    if (browser) {
+      browserContext = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1920, height: 1080 },
+      });
+      page = await browserContext.newPage();
+    } else {
+      // Launch local browser
+      browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      });
+      browserContext = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1920, height: 1080 },
+      });
+      page = await browserContext.newPage();
+      shouldCloseBrowser = true;
+    }
+
+    await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+    // Wait for search results to load
+    await page.waitForSelector('#search, .g, #rso', { timeout: 10000 }).catch(() => {});
+
+    // Check for CAPTCHA
+    const hasCaptcha = await page.$('form[action*="verify"], #captcha, .g-recaptcha');
+    if (hasCaptcha) {
+      if (log.error) {
+        await log.error('Google presented CAPTCHA in browser mode, search failed');
+      }
+      return [];
+    }
+
+    // Extract search results
+    const results = await page.evaluate(() => {
+      const organicResults = [];
+      
+      // Try multiple selectors for Google results
+      const selectors = ['.g', '#rso .g', '.MjjYud', '[data-sokoban-container]'];
+      let resultElements = [];
+      
+      for (const selector of selectors) {
+        resultElements = document.querySelectorAll(selector);
+        if (resultElements.length > 0) break;
+      }
+
+      resultElements.forEach((el) => {
+        try {
+          // Find the link
+          const linkEl = el.querySelector('a[href^="http"]');
+          if (!linkEl) return;
+          
+          const url = linkEl.href;
+          if (!url || url.includes('google.com/search') || url.includes('webcache.googleusercontent.com')) return;
+
+          // Find the title
+          const titleEl = el.querySelector('h3, [role="heading"]');
+          const title = titleEl ? titleEl.textContent.trim() : '';
+
+          // Find the description
+          const descEl = el.querySelector('[data-sncf], .VwiC3b, .lEBKkf span');
+          const description = descEl ? descEl.textContent.trim() : '';
+
+          organicResults.push({ url, title, description });
+        } catch (e) {
+          // Skip malformed results
+        }
+      });
+
+      return organicResults;
+    });
+
+    if (log.info) {
+      await log.info(`Browser search found ${results.length} results`);
+    }
+
+    return results.slice(0, maxResults);
+
+  } catch (err) {
+    if (log.error) {
+      await log.error(`Browser search failed: ${err.message}`);
+    }
+    return [];
+  } finally {
+    if (page) await page.close().catch(() => {});
+    if (browserContext) await browserContext.close().catch(() => {});
+    if (shouldCloseBrowser && browser) await browser.close().catch(() => {});
+  }
+}
+
+/**
+ * Run Google Search using raw HTTP
+ * Used when scrapingTool is 'raw-http'
+ */
+async function runGoogleSearchWithHttp(query, maxResults, serpMaxRetries, log) {
   if (log.info) {
     await log.info(`Running Google Search for: ${query}, maxResults: ${maxResults}`);
   }
@@ -1147,7 +1264,14 @@ async function runRAGWebBrowser(inputData, cafesdk) {
   } else if (query) {
     try {
       timeMeasures.addEvent('before-search');
-      searchResults = await runGoogleSearch(query, maxResults, serpMaxRetries, log);
+      // Use browser mode for Google search if scrapingTool is browser-playwright
+      // This handles JavaScript redirects and CAPTCHAs better
+      if (scrapingTool === 'browser-playwright') {
+        await log.info('Using browser mode for Google search');
+        searchResults = await runGoogleSearchWithBrowser(query, maxResults, log);
+      } else {
+        searchResults = await runGoogleSearchWithHttp(query, maxResults, serpMaxRetries, log);
+      }
       timeMeasures.addEvent('search-complete');
       urlsToScrape = searchResults.map((r) => r.url).filter(Boolean);
       await log.info(`Found ${urlsToScrape.length} URLs to scrape`);
