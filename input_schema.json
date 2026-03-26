@@ -1,14 +1,28 @@
 {
   "description": "RAG Web Browser - Web scraping tool for RAG pipelines. Queries Google Search or scrapes URLs directly, returns content as Markdown. | RAG 网页浏览器 - RAG 管道的网页抓取工具。支持 Google 搜索或直接抓取 URL，返回 Markdown 格式内容。",
-  "b": "query",
+  "b": "queries",
   "properties": [
     {
-      "title": "Search Query or URL | 搜索关键词或 URL",
-      "name": "query",
-      "type": "string",
-      "editor": "textfield",
-      "description": "Enter Google Search keywords or a URL to scrape directly. Examples: 'web scraping tools' or 'https://example.com'. | 输入 Google 搜索关键词或直接抓取的 URL。例如：'网页抓取工具' 或 'https://example.com'",
-      "prefill": "web browser for RAG pipelines -site:reddit.com",
+      "title": "Search Queries or URLs | 搜索关键词或 URL",
+      "name": "queries",
+      "type": "array",
+      "editor": "requestListSource",
+      "description": "Enter Google Search keywords or URLs to scrape. Each line runs as a separate task. | 输入 Google 搜索关键词或要抓取的 URL。每行作为独立任务运行。",
+      "default": [
+        {
+          "query": "web browser for RAG pipelines -site:reddit.com"
+        }
+      ],
+      "param_list": [
+        {
+          "param": "query",
+          "title": "Query or URL | 搜索词或URL",
+          "editor": "input",
+          "type": "string",
+          "required": true,
+          "description": "Google search keywords or direct URL to scrape. | Google 搜索关键词或直接抓取的 URL。"
+        }
+      ],
       "required": true
     },
     {

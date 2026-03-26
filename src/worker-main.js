@@ -1069,10 +1069,26 @@ async function runRAGWebBrowser(inputData, cafesdk) {
 
   timeMeasures.addEvent('request-received');
 
-  // Handle legacy URL format compatibility
-  // Support both 'query' (new) and 'url' (legacy) parameters
+  // Handle input format compatibility
+  // Cafe platform splits 'queries' array into separate tasks, so each task receives:
+  // { queries: [{ query: "..." }], ...otherParams }
+  // We need to extract the single query from the array
   let normalizedInput = { ...inputData };
-  if (!normalizedInput.query && normalizedInput.url) {
+  
+  // Priority 1: queries array (Cafe platform format with b field)
+  if (normalizedInput.queries && Array.isArray(normalizedInput.queries) && normalizedInput.queries.length > 0) {
+    const firstQuery = normalizedInput.queries[0];
+    if (typeof firstQuery === 'string') {
+      normalizedInput.query = firstQuery;
+    } else if (firstQuery && firstQuery.query) {
+      normalizedInput.query = firstQuery.query;
+    }
+    if (log.info) {
+      await log.info(`Cafe queries array format detected, using: ${normalizedInput.query}`);
+    }
+  }
+  // Priority 2: Legacy url array format
+  else if (!normalizedInput.query && normalizedInput.url) {
     if (Array.isArray(normalizedInput.url)) {
       // Legacy format: url array [{ url: 'https://...' }, ...] or ['https://...', ...]
       const firstUrl = normalizedInput.url[0];
